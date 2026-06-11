@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pandas as pd
 import plotly.express as px
@@ -81,6 +82,9 @@ CUSTOM_CSS = """
     .premium-note {background: linear-gradient(135deg, #eff6ff, #f8fafc); border:1px solid #dbeafe; border-radius:18px; padding:16px 18px; color:#1e3a8a;}
     .report-box textarea {font-size:0.95rem !important; line-height:1.6 !important;}
     .demo-banner {background: linear-gradient(90deg, #dbeafe, #eff6ff); border:1px solid #bfdbfe; border-radius:16px; padding:14px 18px; margin-bottom:18px; color:#1e3a8a;}
+    .status-banner {background: linear-gradient(90deg, #ecfeff, #f8fafc); border:1px solid #bae6fd; border-radius:16px; padding:14px 18px; margin-bottom:18px; color:#0f172a;}
+    .status-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;}
+    .status-chip {background:#ffffff; border:1px solid #dbeafe; padding:7px 10px; border-radius:999px; font-size:0.84rem; color:#0f172a;}
     div[data-testid="stTabs"] button[role="tab"] {font-weight: 700; border-radius: 999px; padding: 10px 18px;}
     div[data-testid="stTabs"] button[aria-selected="true"] {background: linear-gradient(90deg, #dbeafe, #eff6ff); color: #1d4ed8;}
 </style>
@@ -213,6 +217,47 @@ def safe_simulate_what_if(selected_company: str, risk_df, segment_df, pf_stress:
             "projected_risk_level": "Unknown",
             "impact_summary": f"안정화 모드 fallback 적용 · {exc}",
         }
+
+
+def render_deploy_status_banner(metrics_df, risk_df, alerts_df, latest_month: str):
+    metrics_rows = len(metrics_df) if isinstance(metrics_df, pd.DataFrame) else 0
+    risk_rows = len(risk_df) if isinstance(risk_df, pd.DataFrame) else 0
+    alerts_rows = len(alerts_df) if isinstance(alerts_df, pd.DataFrame) else 0
+    expected_python = "3.11"
+    runtime_python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    driver = "정상" if metrics_rows > 0 and risk_rows > 0 else "점검 필요"
+    banner = f"""
+    <div class="status-banner">
+        <b>배포 상태 배너</b><br>
+        현재 화면은 배포 진단 정보를 함께 노출합니다. 데이터 적재, 리스크 계산, 핵심 테이블 생성 여부를 첫 화면에서 바로 확인할 수 있습니다.
+        <div class="status-chip-row">
+            <div class="status-chip">기준 월 · {latest_month}</div>
+            <div class="status-chip">metrics rows · {metrics_rows}</div>
+            <div class="status-chip">risk rows · {risk_rows}</div>
+            <div class="status-chip">alerts rows · {alerts_rows}</div>
+            <div class="status-chip">expected python · {expected_python}</div>
+            <div class="status-chip">runtime python · {runtime_python}</div>
+            <div class="status-chip">healthcheck · {driver}</div>
+        </div>
+    </div>
+    """
+    st.markdown(banner, unsafe_allow_html=True)
+
+
+def render_healthcheck_expander(metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df):
+    with st.expander("헬스체크 · 배포 진단 요약", expanded=False):
+        health_df = pd.DataFrame(
+            [
+                {"항목": "metrics_df", "rows": len(metrics_df), "columns": len(metrics_df.columns)},
+                {"항목": "logs_df", "rows": len(logs_df), "columns": len(logs_df.columns)},
+                {"항목": "drivers_df", "rows": len(drivers_df), "columns": len(drivers_df.columns)},
+                {"항목": "segment_df", "rows": len(segment_df), "columns": len(segment_df.columns)},
+                {"항목": "risk_df", "rows": len(risk_df), "columns": len(risk_df.columns)},
+                {"항목": "alerts_df", "rows": len(alerts_df), "columns": len(alerts_df.columns)},
+            ]
+        )
+        st.dataframe(health_df, use_container_width=True, hide_index=True)
+        st.caption("Streamlit Cloud에서 Python 버전은 앱 설정에서도 3.11로 맞추는 것을 권장합니다.")
 
 
 def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
@@ -463,6 +508,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+render_deploy_status_banner(metrics_df, risk_df, alerts_df, latest_month)
+render_healthcheck_expander(metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df)
 
 st.markdown(
     f"""

@@ -172,3 +172,34 @@ date,company_name,portfolio_group,segment_name,collateral_type,industry,balance,
 - PDF / PPT 자동 생성
 - 사용자 권한 관리 및 감사 로그
 - 시나리오별 자본·건전성 영향 분석
+
+
+---
+
+## 12. Streamlit Cloud 장애 대응 가이드
+
+### 12.1 권장 Python 버전
+- 로컬/개발 기준 Python **3.11** 사용을 권장합니다.
+- 저장소 루트의 `.python-version` 파일에 `3.11`을 고정했습니다.
+- Streamlit Community Cloud는 저장소 파일만으로 Python 버전이 완전히 고정되지 않을 수 있으므로, **앱 설정에서도 Python 3.11을 선택**하는 것을 권장합니다.
+
+### 12.2 흰 화면(White Screen) 발생 시 확인 순서
+1. **Manage app → Reboot app** 실행
+2. **Clear cache** 후 재실행
+3. 브라우저 **강력 새로고침 / 시크릿 모드**로 재확인
+4. 앱 첫 화면의 **배포 상태 배너**와 **헬스체크 · 배포 진단 요약** 확인
+5. `metrics_df`, `risk_df` row 수가 0인지 확인
+6. Streamlit Cloud의 Python 버전이 3.11인지 확인
+
+### 12.3 배포 배너에서 봐야 할 포인트
+- **metrics rows**: 원본 지표 적재 여부
+- **risk rows**: 리스크 계산 성공 여부
+- **alerts rows**: 조기경보 생성 여부
+- **runtime python**: 실제 배포 런타임 Python 버전
+- **healthcheck**: 첫 화면 최소 진단 결과
+
+### 12.4 재배포 체크리스트
+- 최신 커밋이 GitHub 원격 저장소에 push 되었는지 확인
+- Streamlit Community Cloud에서 **Manual redeploy** 실행
+- 필요 시 **Reboot + Clear cache** 병행
+- 여전히 흰 화면이면 브라우저 개발자도구 Network 탭에서 JS/manifest 정적 파일이 정상 응답하는지 확인
