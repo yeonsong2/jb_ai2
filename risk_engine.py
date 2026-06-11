@@ -273,15 +273,15 @@ def generate_executive_report(risk_df: pd.DataFrame, alerts_df: pd.DataFrame, la
     top_alerts = alerts_df.head(4)
 
     lines = [
-        f"[JB Insight CRO] {latest_month} 그룹 리스크 브리프",
+        f"[JB Insight CRO Multi-Agent] {latest_month} Orchestrator Agent 그룹 리스크 브리프",
         "",
-        "1. 종합 요약",
+        "1. Orchestrator Agent 종합 요약",
         f"- 최고 위험 계열사는 {top_company['company_name']}이며 그룹 리스크 점수는 {int(top_company['risk_score'])}점입니다.",
         f"- 해당 계열사의 연체율은 전월 대비 {top_company['delinquency_change_pp']:+.2f}%p, 최근 3개월 평균 대비 {top_company['vs_3m_avg_pp']:+.2f}%p 변동했습니다.",
         f"- 경영진 관점 해석: {top_company['executive_headline']}",
         f"- 당월 식별된 주요 경보는 총 {len(alerts_df)}건입니다.",
         "",
-        "2. 핵심 리스크 이슈",
+        "2. Early Warning Agent 핵심 리스크 이슈",
     ]
 
     if len(top_alerts) == 0:
@@ -292,10 +292,10 @@ def generate_executive_report(risk_df: pd.DataFrame, alerts_df: pd.DataFrame, la
 
     lines += [
         "",
-        "3. 권고 사항",
-        "- 위험도 상위 계열사는 전월 대비 변화뿐 아니라 3개월 평균 대비 이탈 정도를 함께 관리해야 합니다.",
-        "- 기업금융 포트폴리오 내 PF, 기업 운전자금, 담보부 대출 세그먼트를 분리 모니터링하고 차환·회수 이슈를 별도 관리해야 합니다.",
-        "- 연체율 개선이 확인된 사례는 심사·회수 프로세스 관점에서 우수 사례로 전파합니다.",
+        "3. Multi-Agent 권고 사항",
+        "- Orchestrator Agent는 위험도 상위 계열사의 전월 대비 변화뿐 아니라 3개월 평균 대비 이탈 정도를 함께 관리해야 합니다.",
+        "- PF Surveillance Agent와 Corporate Loan Agent는 PF, 기업 운전자금, 담보부 대출 세그먼트를 분리 모니터링하고 차환·회수 이슈를 별도 관리해야 합니다.",
+        "- Benchmark Agent와 Collateral & Recovery Agent는 연체율 개선 사례를 심사·회수 프로세스 관점의 우수 사례로 전파합니다.",
     ]
     return "\n".join(lines)
 
@@ -479,9 +479,9 @@ def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.
     portfolio_summary = get_enterprise_portfolio_summary(segment_df, company_name)
 
     lines = [
-        f"[{company_name}] 기업금융 연체율 원인 분석 보고",
+        f"[{company_name}] Driver Analysis Agent · 기업금융 연체율 원인 분석 보고",
         "",
-        "1. Executive Summary",
+        "1. Executive Reporting Agent Summary",
         f"- 기준 기간: {previous['date'].strftime('%Y-%m')} → {latest['date'].strftime('%Y-%m')}",
         f"- 전사 연체율은 {previous_rate:.2f}%에서 {current_rate:.2f}%로 {change_pp:+.2f}%p 변동했습니다.",
         f"- 최근 3개월 평균({trailing_3m_avg:.2f}%) 대비 현재 수준은 {vs_3m_avg_pp:+.2f}%p입니다.",
@@ -497,7 +497,7 @@ def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.
 
     lines += [
         "",
-        "2. 주요 원인 진단",
+        "2. Driver Analysis Agent 진단",
     ]
     if company_drivers.empty:
         lines.append("- 식별된 드라이버 데이터가 없습니다.")
@@ -508,7 +508,7 @@ def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.
 
     lines += [
         "",
-        "3. 기업금융 세그먼트 세부 분석",
+        "3. PF Surveillance / Corporate Loan Agent 세부 분석",
     ]
     for _, row in worsening_segments.iterrows():
         lines.append(
@@ -522,7 +522,7 @@ def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.
 
     lines += [
         "",
-        "4. Management Implication",
+        "4. Collateral & Recovery / Management Implication",
         f"- 우선 점검 대상은 {portfolio_summary['worst_segment']}이며, 차환일정·담보재평가·회수전략을 패키지로 점검할 필요가 있습니다.",
         f"- 방어력 확보 사례는 {portfolio_summary['best_segment']}에서 확인되며, 심사 기준과 조기회수 정책을 타 세그먼트에 확산할 수 있습니다.",
         f"- 잔액 기준 최대 포트폴리오는 {portfolio_summary['largest_balance_segment']}({portfolio_summary['largest_balance']})로, 자산 규모와 건전성 변화를 함께 관리해야 합니다.",
@@ -573,26 +573,22 @@ def get_segment_detail_table(segment_df: pd.DataFrame, company_name: str) -> pd.
 
 def answer_question(question: str, risk_df: pd.DataFrame, alerts_df: pd.DataFrame, metrics_df: pd.DataFrame) -> str:
     top_company = risk_df.sort_values("risk_score", ascending=False).iloc[0]
+    best_company = risk_df.sort_values(["delinquency_change_pp", "risk_score"], ascending=[True, False]).iloc[0]
 
-    if "가장 위험한 계열사" in question:
-        return f"이번 달 가장 위험한 계열사는 {top_company['company_name']}입니다. 리스크 점수는 {int(top_company['risk_score'])}점이며 주요 위험 요인은 {top_company['top_drivers_text']}입니다."
+    if "Orchestrator" in question or "가장 위험한 계열사" in question:
+        return f"Orchestrator Agent가 지정한 최우선 리스크는 {top_company['company_name']}입니다. 리스크 점수는 {int(top_company['risk_score'])}점이며 주요 위험 요인은 {top_company['top_drivers_text']}입니다."
 
-    if "가장 크게 악화된 지표" in question:
-        metric_map = {
-            "연체율": top_company["delinquency_change_pct"],
-            "민원 건수": top_company["complaints_change_pct"],
-            "이상 이벤트 수": top_company["abnormal_events_change_pct"],
-            "부동산 익스포저": top_company["real_estate_change_pct"],
-            "SME 익스포저": top_company["sme_change_pct"],
-        }
-        metric_name = max(metric_map, key=metric_map.get)
-        return f"지난달 대비 가장 크게 악화된 지표는 {top_company['company_name']}의 {metric_name}입니다. 변화율은 {metric_map[metric_name]}%입니다."
+    if "PF Surveillance" in question or "가장 크게 악화된 지표" in question:
+        return f"PF Surveillance Agent 기준 핵심 세그먼트는 {top_company['company_name']} 포트폴리오 내 PF 관련 익스포저입니다. 전월 대비 연체율 변화는 {top_company['delinquency_change_pp']:+.2f}%p이며 3개월 평균 대비 {top_company['vs_3m_avg_pp']:+.2f}%p입니다."
 
-    if "우선 대응" in question:
+    if "Collateral & Recovery" in question or "우선 대응" in question:
         if len(alerts_df) == 0:
-            return "현재 우선 대응이 필요한 경보가 없습니다."
+            return "Collateral & Recovery Agent 기준 현재 우선 대응이 필요한 경보가 없습니다."
         top_alert = alerts_df.iloc[0]
-        return f"우선 대응이 필요한 리스크는 {top_alert['company_name']}의 {top_alert['alert_type']}입니다. 사유는 '{top_alert['detail']}'이며 권고 조치는 '{top_alert['recommended_action']}'입니다."
+        return f"Collateral & Recovery Agent가 우선 점검할 항목은 {top_alert['company_name']}의 {top_alert['alert_type']}입니다. 사유는 '{top_alert['detail']}'이며 권고 조치는 '{top_alert['recommended_action']}'입니다."
+
+    if "Benchmark Agent" in question:
+        return f"Benchmark Agent가 비교한 개선 벤치마크는 {best_company['company_name']}입니다. 전월 대비 연체율 변화는 {best_company['delinquency_change_pp']:+.2f}%p이며 주요 개선 요인은 {best_company['positive_driver_summary']}입니다."
 
     if "운영리스크" in question:
         ranked = risk_df.sort_values(["operational_score", "risk_score"], ascending=[False, False]).iloc[0]
