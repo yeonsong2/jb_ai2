@@ -99,10 +99,7 @@ def load_data():
 
 
 def validate_required_columns(name: str, df: pd.DataFrame, required_columns: list[str]):
-    missing = [col for col in required_columns if col not in df.columns]
-    if missing:
-        st.error(f"배포 데이터 스키마 불일치 · {name}에 필수 컬럼이 없습니다: {', '.join(missing)}")
-        st.stop()
+    return [col for col in required_columns if col not in df.columns]
 
 
 @st.cache_data
@@ -111,6 +108,111 @@ def build_dashboard_data(metrics_df: pd.DataFrame, logs_df: pd.DataFrame, driver
     alerts = detect_alerts(metrics_df, logs_df)
     comparison = get_company_comparison(risk)
     return risk, alerts, comparison
+
+
+def stop_with_deploy_diagnostics(message: str, diagnostics=None):
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.error(message)
+    if diagnostics:
+        with st.expander("배포 진단 정보", expanded=True):
+            st.json(diagnostics)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+
+def ensure_dataframe_columns(df, defaults: dict):
+    base = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    for column, default in defaults.items():
+        if column not in base.columns:
+            base[column] = default
+    return base
+
+
+def fallback_snapshot(company_name: str):
+    return {
+        "current_rate": 0.0,
+        "previous_rate": 0.0,
+        "mom_change_pp": 0.0,
+        "mom_change_pct": 0.0,
+        "trailing_3m_avg": 0.0,
+        "vs_3m_avg_pp": 0.0,
+        "headline": f"{company_name} 기준 데이터가 충분하지 않아 기본값으로 표시 중입니다.",
+        "positive_driver_summary": "개선 요인 데이터 없음",
+        "negative_driver_summary": "악화 요인 데이터 없음",
+    }
+
+
+def fallback_portfolio_summary():
+    return {
+        "pf_share": 0.0,
+        "secured_share": 0.0,
+        "worst_segment": "데이터 없음",
+        "worst_change_pp": 0.0,
+        "best_segment": "데이터 없음",
+        "best_change_pp": 0.0,
+        "largest_balance_segment": "데이터 없음",
+        "largest_balance": 0.0,
+    }
+
+
+def fallback_comparison_data():
+    return {
+        "best_company": "N/A",
+        "best_change_pp": 0.0,
+        "best_summary": "비교 데이터 없음",
+        "worst_company": "N/A",
+        "worst_change_pp": 0.0,
+        "worst_summary": "비교 데이터 없음",
+        "trend_table": pd.DataFrame(columns=["계열사", "전월 대비 변화(%p)", "3개월 평균 대비(%p)", "현재 연체율"]),
+    }
+
+
+def safe_generate_reason_report(metrics_df, drivers_df, segment_df, company_name: str):
+    try:
+        return generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, company_name)
+    except Exception as exc:
+        return f"[안정화 모드] Driver Analysis Agent 보고서 생성 중 예외가 발생했습니다: {exc}"
+
+
+def safe_generate_executive_report(risk_df, alerts_df, latest_month: str):
+    try:
+        return generate_executive_report(risk_df, alerts_df, latest_month)
+    except Exception as exc:
+        return f"[안정화 모드] Orchestrator Agent 그룹 브리프 생성 중 예외가 발생했습니다: {exc}"
+
+
+def safe_answer_question(question: str, risk_df, alerts_df, metrics_df):
+    try:
+        return answer_question(question, risk_df, alerts_df, metrics_df)
+    except Exception as exc:
+        return f"[안정화 모드] Interactive Q&A Agent 응답 생성 중 예외가 발생했습니다: {exc}"
+
+
+def safe_simulate_what_if(selected_company: str, risk_df, segment_df, pf_stress: float, collateral_stress: float, sme_stress: float):
+    try:
+        return simulate_what_if_scenario(
+            selected_company,
+            risk_df,
+            segment_df,
+            pf_refinancing_shock_pp=pf_stress,
+            collateral_recovery_drop_pp=collateral_stress,
+            sme_slowdown_shock_pp=sme_stress,
+        )
+    except Exception as exc:
+        base_rate = 0.0
+        if isinstance(risk_df, pd.DataFrame) and not risk_df.empty and "company_name" in risk_df.columns and "latest_delinquency_rate" in risk_df.columns:
+            matched = risk_df[risk_df["company_name"] == selected_company]
+            if not matched.empty:
+                base_rate = float(matched.iloc[0]["latest_delinquency_rate"])
+        stress_delta = round(float(pf_stress) + float(collateral_stress) + float(sme_stress), 2)
+        return {
+            "base_rate": base_rate,
+            "projected_rate": round(base_rate + stress_delta, 2),
+            "stress_delta": stress_delta,
+            "projected_risk_score": 0,
+            "projected_risk_level": "Unknown",
+            "impact_summary": f"안정화 모드 fallback 적용 · {exc}",
+        }
 
 
 def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
@@ -157,19 +259,73 @@ def render_reason_box(title: str, content: str, positive: bool = True):
     )
 
 
-metrics_df, logs_df, drivers_df, segment_df = load_data()
-validate_required_columns("sample_risk_metrics.csv", metrics_df, REQUIRED_COLUMNS["metrics"])
-validate_required_columns("sample_risk_logs.csv", logs_df, REQUIRED_COLUMNS["logs"])
-validate_required_columns("sample_delinquency_drivers.csv", drivers_df, REQUIRED_COLUMNS["drivers"])
-validate_required_columns("sample_segment_metrics.csv", segment_df, REQUIRED_COLUMNS["segments"])
+startup_diagnostics = {"base_dir": str(BASE_DIR), "data_dir": str(DATA_DIR)}
 
-risk_df, alerts_df, comparison_data = build_dashboard_data(metrics_df, logs_df, drivers_df, segment_df)
-latest_date = metrics_df["date"].max()
-latest_month = latest_date.strftime("%Y-%m")
-company_options = sorted(metrics_df["company_name"].unique().tolist())
+try:
+    metrics_df, logs_df, drivers_df, segment_df = load_data()
+except Exception as exc:
+    stop_with_deploy_diagnostics("데이터 파일 로드 단계에서 예외가 발생했습니다.", startup_diagnostics | {"error": repr(exc)})
 
-if "selected_company" not in st.session_state:
-    st.session_state["selected_company"] = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
+missing_columns = {}
+for key, df in {
+    "metrics": metrics_df,
+    "logs": logs_df,
+    "drivers": drivers_df,
+    "segments": segment_df,
+}.items():
+    startup_diagnostics[key] = {"rows": int(len(df)), "columns": list(df.columns)}
+    missing = validate_required_columns(key, df, REQUIRED_COLUMNS[key])
+    if missing:
+        missing_columns[key] = missing
+
+if missing_columns:
+    stop_with_deploy_diagnostics("배포 데이터 스키마 불일치가 감지되었습니다.", startup_diagnostics | {"missing_columns": missing_columns})
+
+try:
+    risk_df, alerts_df, comparison_data = build_dashboard_data(metrics_df, logs_df, drivers_df, segment_df)
+except Exception as exc:
+    stop_with_deploy_diagnostics("리스크 계산 단계에서 예외가 발생했습니다.", startup_diagnostics | {"error": repr(exc)})
+
+if metrics_df.empty:
+    stop_with_deploy_diagnostics("sample_risk_metrics.csv가 비어 있어 화면을 구성할 수 없습니다.", startup_diagnostics)
+
+risk_df = ensure_dataframe_columns(
+    risk_df,
+    {
+        "company_name": "",
+        "company_type": "Unknown",
+        "risk_score": 0.0,
+        "risk_level": "Low",
+        "latest_delinquency_rate": 0.0,
+        "delinquency_change_pp": 0.0,
+        "vs_3m_avg_pp": 0.0,
+        "positive_driver_summary": "개선 요인 데이터 없음",
+        "negative_driver_summary": "악화 요인 데이터 없음",
+        "top_drivers": "데이터 없음",
+        "executive_headline": "데이터 없음",
+    },
+)
+alerts_df = ensure_dataframe_columns(
+    alerts_df,
+    {
+        "severity": "Low",
+        "company_name": "",
+        "alert_type": "N/A",
+        "detail": "상세 정보 없음",
+        "recommended_action": "기본 모니터링 유지",
+    },
+)
+
+latest_date = metrics_df["date"].dropna().max() if "date" in metrics_df.columns else pd.NaT
+latest_month = latest_date.strftime("%Y-%m") if pd.notna(latest_date) else "N/A"
+company_options = sorted([str(name) for name in metrics_df["company_name"].dropna().tolist() if str(name).strip()])
+company_options = sorted(list(dict.fromkeys(company_options)))
+if not company_options:
+    stop_with_deploy_diagnostics("company_name 값이 비어 있어 메인 스토리 계열사를 선택할 수 없습니다.", startup_diagnostics)
+
+preferred_company = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
+if "selected_company" not in st.session_state or st.session_state.get("selected_company") not in company_options:
+    st.session_state["selected_company"] = preferred_company
 if "demo_mode" not in st.session_state:
     st.session_state["demo_mode"] = "전체 흐름"
 
@@ -209,22 +365,80 @@ with st.sidebar:
         ],
     )
     if st.button("Interactive Q&A Agent 실행", use_container_width=True):
-        st.session_state["qa_answer"] = answer_question(demo_question, risk_df, alerts_df, metrics_df)
+        st.session_state["qa_answer"] = safe_answer_question(demo_question, risk_df, alerts_df, metrics_df)
     if st.button("Driver Analysis Agent 실행", use_container_width=True):
-        st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+        st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
         st.session_state["reason_report_company"] = selected_company
     st.caption("멀티에이전트 메인 스토리: JB우리캐피탈 · PF Surveillance / Corporate Loan / Collateral & Recovery Agent 협업")
 
-selected_snapshot = get_delinquency_snapshot(risk_df, selected_company)
-selected_risk_row = risk_df[risk_df["company_name"] == selected_company].iloc[0]
-segment_table = get_segment_detail_table(segment_df, selected_company)
-portfolio_summary = get_enterprise_portfolio_summary(segment_df, selected_company)
-filtered_alerts = alerts_df[alerts_df["severity"].isin(severity_filter)].copy()
-max_score_company = risk_df.sort_values("risk_score", ascending=False).iloc[0]
-high_alert_count = len(alerts_df[alerts_df["severity"] == "High"])
-avg_score = round(risk_df["risk_score"].mean(), 1)
-agent_trace_df = get_agent_execution_table(selected_company, risk_df, alerts_df, segment_df)
-action_item_df = get_action_item_table(selected_company, risk_df, alerts_df, segment_df)
+selected_snapshot = fallback_snapshot(selected_company)
+try:
+    selected_snapshot.update(get_delinquency_snapshot(risk_df, selected_company) or {})
+except Exception:
+    pass
+
+selected_risk_candidates = risk_df[risk_df["company_name"] == selected_company]
+if not selected_risk_candidates.empty:
+    selected_risk_row = selected_risk_candidates.iloc[0]
+else:
+    selected_risk_row = pd.Series({
+        "company_name": selected_company,
+        "top_drivers": "데이터 없음",
+        "negative_driver_summary": "악화 요인 데이터 없음",
+        "positive_driver_summary": "개선 요인 데이터 없음",
+    })
+
+try:
+    segment_table = get_segment_detail_table(segment_df, selected_company)
+except Exception:
+    segment_table = pd.DataFrame()
+segment_table = ensure_dataframe_columns(
+    segment_table,
+    {
+        "세그먼트": "데이터 없음",
+        "연체율 변화(%p)": 0.0,
+        "담보유형": "미분류",
+        "잔액 변화": 0.0,
+        "현재 잔액": 0.0,
+        "업종": "미분류",
+    },
+)
+
+portfolio_summary = fallback_portfolio_summary()
+try:
+    portfolio_summary.update(get_enterprise_portfolio_summary(segment_df, selected_company) or {})
+except Exception:
+    pass
+
+comparison_defaults = fallback_comparison_data()
+comparison_data = comparison_data if isinstance(comparison_data, dict) else {}
+for key, value in comparison_defaults.items():
+    comparison_data.setdefault(key, value)
+comparison_data["trend_table"] = ensure_dataframe_columns(
+    comparison_data.get("trend_table"),
+    {"계열사": "", "전월 대비 변화(%p)": 0.0, "3개월 평균 대비(%p)": 0.0, "현재 연체율": 0.0},
+)
+
+filtered_alerts = alerts_df[alerts_df["severity"].isin(severity_filter)].copy() if "severity" in alerts_df.columns else pd.DataFrame()
+max_score_company = risk_df.sort_values("risk_score", ascending=False).iloc[0] if not risk_df.empty else pd.Series({"company_name": selected_company, "risk_score": 0.0})
+high_alert_count = int((alerts_df["severity"] == "High").sum()) if "severity" in alerts_df.columns else 0
+avg_score = round(pd.to_numeric(risk_df["risk_score"], errors="coerce").dropna().mean(), 1) if not risk_df.empty else 0.0
+
+try:
+    agent_trace_df = get_agent_execution_table(selected_company, risk_df, alerts_df, segment_df)
+except Exception as exc:
+    agent_trace_df = pd.DataFrame([
+        {"Agent": "Orchestrator Agent", "입력": "배포 데이터", "핵심 판단": "안정화 fallback 적용", "출력": str(exc)}
+    ])
+agent_trace_df = ensure_dataframe_columns(agent_trace_df, {"Agent": "Orchestrator Agent", "입력": "-", "핵심 판단": "-", "출력": "-"})
+
+try:
+    action_item_df = get_action_item_table(selected_company, risk_df, alerts_df, segment_df)
+except Exception as exc:
+    action_item_df = pd.DataFrame([
+        {"시점": "오늘", "담당 Agent": "Orchestrator Agent", "액션 아이템": "배포 오류 원인 확인", "기대 효과": str(exc)}
+    ])
+action_item_df = ensure_dataframe_columns(action_item_df, {"시점": "오늘", "담당 Agent": "Orchestrator Agent", "액션 아이템": "데이터 확인", "기대 효과": "기본 안정화"})
 
 st.markdown(
     f"""
@@ -342,18 +556,21 @@ with tab1:
     with right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Early Warning Agent 리스크 점수</div>', unsafe_allow_html=True)
-        fig = px.bar(
-            risk_df.sort_values("risk_score", ascending=True),
-            x="risk_score",
-            y="company_name",
-            color="risk_level",
-            text="risk_score",
-            orientation="h",
-            color_discrete_map={"High": "#ef4444", "Medium": "#f59e0b", "Low": "#10b981"},
-        )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
+        if risk_df.empty:
+            st.info("표시할 리스크 점수 데이터가 없습니다.")
+        else:
+            fig = px.bar(
+                risk_df.sort_values("risk_score", ascending=True),
+                x="risk_score",
+                y="company_name",
+                color="risk_level",
+                text="risk_score",
+                orientation="h",
+                color_discrete_map={"High": "#ef4444", "Medium": "#f59e0b", "Low": "#10b981"},
+            )
+            fig.update_traces(textposition="outside")
+            fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
@@ -378,16 +595,19 @@ with tab2:
             "exposure_real_estate": "부동산 익스포저",
             "exposure_sme": "중소기업 익스포저",
         }
-        trend_fig = px.line(
-            metrics_df.sort_values("date"),
-            x="date",
-            y=metric_choice,
-            color="company_name",
-            markers=True,
-            title=f"월별 {metric_label_map[metric_choice]} 추이",
-        )
-        trend_fig.update_layout(height=410, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(trend_fig, use_container_width=True)
+        if metrics_df.empty or metric_choice not in metrics_df.columns:
+            st.info("추이 차트를 그릴 데이터가 없습니다.")
+        else:
+            trend_fig = px.line(
+                metrics_df.sort_values("date"),
+                x="date",
+                y=metric_choice,
+                color="company_name",
+                markers=True,
+                title=f"월별 {metric_label_map[metric_choice]} 추이",
+            )
+            trend_fig.update_layout(height=410, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(trend_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -426,32 +646,38 @@ with tab3:
     with mid_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">PF Surveillance Agent · 세그먼트별 연체율 변화</div>', unsafe_allow_html=True)
-        seg_fig = px.bar(
-            segment_table,
-            x="세그먼트",
-            y="연체율 변화(%p)",
-            color="담보유형",
-            text="연체율 변화(%p)",
-            title="PF Surveillance / Corporate Loan Agent 세그먼트 변화",
-        )
-        seg_fig.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(seg_fig, use_container_width=True)
+        if segment_table.empty:
+            st.info("세그먼트 변화 데이터가 없습니다.")
+        else:
+            seg_fig = px.bar(
+                segment_table,
+                x="세그먼트",
+                y="연체율 변화(%p)",
+                color="담보유형",
+                text="연체율 변화(%p)",
+                title="PF Surveillance / Corporate Loan Agent 세그먼트 변화",
+            )
+            seg_fig.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(seg_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with mid_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Collateral & Recovery Agent · 세그먼트 리스크 포지셔닝</div>', unsafe_allow_html=True)
-        scatter = px.scatter(
-            segment_table,
-            x="잔액 변화",
-            y="연체율 변화(%p)",
-            size="현재 잔액",
-            color="담보유형",
-            hover_name="세그먼트",
-            symbol="업종",
-            title="Collateral & Recovery Agent 기준 잔액 증가와 연체율 변화 동시 모니터링",
-        )
-        scatter.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(scatter, use_container_width=True)
+        if segment_table.empty:
+            st.info("리스크 포지셔닝 산포도에 사용할 데이터가 없습니다.")
+        else:
+            scatter = px.scatter(
+                segment_table,
+                x="잔액 변화",
+                y="연체율 변화(%p)",
+                size="현재 잔액",
+                color="담보유형",
+                hover_name="세그먼트",
+                symbol="업종",
+                title="Collateral & Recovery Agent 기준 잔액 증가와 연체율 변화 동시 모니터링",
+            )
+            scatter.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(scatter, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -465,13 +691,13 @@ with tab3:
     with slider_col3:
         sme_stress = st.slider("SME 업황 악화 가정(%p)", min_value=0.0, max_value=1.0, value=0.15, step=0.05)
 
-    scenario_result = simulate_what_if_scenario(
+    scenario_result = safe_simulate_what_if(
         selected_company,
         risk_df,
         segment_df,
-        pf_refinancing_shock_pp=pf_stress,
-        collateral_recovery_drop_pp=collateral_stress,
-        sme_slowdown_shock_pp=sme_stress,
+        pf_stress,
+        collateral_stress,
+        sme_stress,
     )
 
     scenario_metrics = st.columns(4)
@@ -502,10 +728,10 @@ with tab4:
         st.markdown(f'<div class="small-title">Executive Reporting Agent · {selected_company} 임원 보고용 연체율 분석</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Executive Reporting Agent가 멀티에이전트 결과를 최종 보고 문장으로 통합합니다.</div>', unsafe_allow_html=True)
         if "reason_report" not in st.session_state or st.session_state.get("reason_report_company") != selected_company:
-            st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
             st.session_state["reason_report_company"] = selected_company
         if st.button("Executive Reporting Agent 새로고침", use_container_width=True):
-            st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
             st.session_state["reason_report_company"] = selected_company
         st.text_area("Executive Reporting Agent 출력", st.session_state["reason_report"], height=460)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -513,9 +739,9 @@ with tab4:
         st.markdown('<div class="section-card report-box">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Orchestrator Agent 그룹 브리프</div>', unsafe_allow_html=True)
         if st.button("Orchestrator Agent 브리프 생성", use_container_width=True):
-            st.session_state["executive_report"] = generate_executive_report(risk_df, alerts_df, latest_month)
+            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
         if "executive_report" not in st.session_state:
-            st.session_state["executive_report"] = generate_executive_report(risk_df, alerts_df, latest_month)
+            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
         st.text_area("Orchestrator Agent 출력", st.session_state["executive_report"], height=300)
         st.markdown('</div>', unsafe_allow_html=True)
     with right:
@@ -526,8 +752,12 @@ with tab4:
         else:
             st.caption("좌측 사이드바에서 Agent 질문을 선택해 실행하세요.")
         st.markdown("#### Driver Analysis Agent가 해석한 현재 선택 계열사 핵심 요인")
-        for item in selected_risk_row["top_drivers"].split("|"):
-            st.markdown(f"- {item}")
+        driver_items = [item.strip() for item in str(selected_risk_row.get("top_drivers", "")).split("|") if item.strip()]
+        if driver_items:
+            for item in driver_items:
+                st.markdown(f"- {item}")
+        else:
+            st.caption("표시할 핵심 요인이 없습니다.")
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
