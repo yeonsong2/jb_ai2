@@ -12,6 +12,7 @@ from risk_engine import (
     generate_executive_report,
     get_company_comparison,
     get_delinquency_snapshot,
+    get_enterprise_portfolio_summary,
     get_segment_detail_table,
 )
 
@@ -26,27 +27,34 @@ st.set_page_config(page_title="JB Insight CRO", page_icon="📊", layout="wide")
 
 CUSTOM_CSS = """
 <style>
-    .block-container {padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1440px;}
-    .hero-wrap {background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 55%, #38bdf8 100%); border-radius: 24px; padding: 30px; color: white; box-shadow: 0 12px 30px rgba(15,23,42,0.18); margin-bottom: 18px;}
-    .hero-title {font-size: 2rem; font-weight: 800; margin-bottom: 10px;}
-    .hero-subtitle {font-size: 1rem; opacity: 0.94; line-height: 1.65;}
-    .info-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;}
-    .info-chip {background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.24); padding: 8px 12px; border-radius: 999px; font-size: 0.9rem;}
-    .metric-card {background:white; border:1px solid #e5e7eb; border-radius:18px; padding:18px 20px; box-shadow:0 8px 24px rgba(15,23,42,0.06); height: 100%;}
-    .metric-label {color:#64748b; font-size:0.9rem; margin-bottom:6px;}
-    .metric-value {font-size:1.9rem; font-weight:800; color:#0f172a;}
-    .metric-caption {font-size:0.85rem; color:#475569; margin-top:6px; line-height: 1.55;}
-    .section-card {background:white; border:1px solid #e5e7eb; border-radius:18px; padding:18px 18px 12px 18px; box-shadow:0 8px 24px rgba(15,23,42,0.05); margin-bottom:16px;}
-    .small-title {font-size:1rem; font-weight:700; color:#0f172a; margin-bottom:10px;}
-    .alert-high,.alert-medium,.alert-low {border-radius:14px; padding:14px 16px; margin-bottom:10px;}
-    .alert-high {border-left:6px solid #ef4444; background:#fff7f7;}
-    .alert-medium {border-left:6px solid #f59e0b; background:#fffbeb;}
-    .alert-low {border-left:6px solid #10b981; background:#f0fdf4;}
-    .alert-title {font-weight:700; color:#0f172a; margin-bottom:4px;}
-    .alert-detail {color:#334155; font-size:0.93rem; line-height:1.5;}
-    .summary-good {border-left:6px solid #10b981; background:#f0fdf4; border-radius:14px; padding:14px 16px; margin-bottom:12px;}
-    .summary-bad {border-left:6px solid #ef4444; background:#fff7f7; border-radius:14px; padding:14px 16px; margin-bottom:12px;}
+    .stApp {background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 52%, #f8fafc 100%);}
+    .block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1480px;}
+    .hero-wrap {background: radial-gradient(circle at top left, rgba(96,165,250,0.22), transparent 28%), linear-gradient(135deg, #0b132b 0%, #102a63 48%, #0f4c81 100%); border-radius: 28px; padding: 34px 34px 28px 34px; color: white; box-shadow: 0 18px 50px rgba(15,23,42,0.22); margin-bottom: 18px; border: 1px solid rgba(255,255,255,0.08);}
+    .hero-kicker {font-size: 0.82rem; letter-spacing: .12em; text-transform: uppercase; color: #bfdbfe; margin-bottom: 8px; font-weight: 700;}
+    .hero-title {font-size: 2.15rem; font-weight: 900; margin-bottom: 10px;}
+    .hero-subtitle {font-size: 1rem; opacity: 0.96; line-height: 1.72; max-width: 1080px;}
+    .info-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;}
+    .info-chip {background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18); padding: 8px 12px; border-radius: 999px; font-size: 0.9rem; backdrop-filter: blur(8px);}
+    .metric-card {background: rgba(255,255,255,0.92); border:1px solid rgba(148,163,184,0.20); border-radius:20px; padding:20px 22px; box-shadow:0 12px 32px rgba(15,23,42,0.08); min-height: 138px;}
+    .metric-label {color:#64748b; font-size:0.88rem; margin-bottom:6px; font-weight:600;}
+    .metric-value {font-size:1.9rem; font-weight:900; color:#0f172a; line-height:1.15;}
+    .metric-caption {font-size:0.87rem; color:#475569; margin-top:8px; line-height: 1.55;}
+    .metric-badge {display:inline-block; margin-top:10px; background:#eff6ff; color:#1d4ed8; font-size:0.76rem; padding:5px 9px; border-radius:999px; font-weight:700;}
+    .section-card {background:rgba(255,255,255,0.94); border:1px solid rgba(148,163,184,0.22); border-radius:22px; padding:18px 18px 14px 18px; box-shadow:0 10px 28px rgba(15,23,42,0.06); margin-bottom:16px;}
+    .small-title {font-size:1.03rem; font-weight:800; color:#0f172a; margin-bottom:10px;}
+    .section-subtitle {font-size:0.85rem; color:#64748b; margin-bottom:14px;}
+    .alert-high,.alert-medium,.alert-low {border-radius:16px; padding:14px 16px; margin-bottom:10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7);}
+    .alert-high {border-left:6px solid #ef4444; background:linear-gradient(90deg, #fff5f5, #fffafb);}
+    .alert-medium {border-left:6px solid #f59e0b; background:linear-gradient(90deg, #fffaf0, #fffdf7);}
+    .alert-low {border-left:6px solid #10b981; background:linear-gradient(90deg, #f0fdf4, #f7fffb);}
+    .alert-title {font-weight:800; color:#0f172a; margin-bottom:4px;}
+    .alert-detail {color:#334155; font-size:0.92rem; line-height:1.56;}
+    .summary-good {border-left:6px solid #10b981; background:#f0fdf4; border-radius:16px; padding:14px 16px; margin-bottom:12px;}
+    .summary-bad {border-left:6px solid #ef4444; background:#fff7f7; border-radius:16px; padding:14px 16px; margin-bottom:12px;}
+    .premium-note {background: linear-gradient(135deg, #eff6ff, #f8fafc); border:1px solid #dbeafe; border-radius:18px; padding:16px 18px; color:#1e3a8a;}
     .report-box textarea {font-size:0.95rem !important; line-height:1.6 !important;}
+    div[data-testid="stTabs"] button[role="tab"] {font-weight: 700; border-radius: 999px; padding: 10px 18px;}
+    div[data-testid="stTabs"] button[aria-selected="true"] {background: linear-gradient(90deg, #dbeafe, #eff6ff); color: #1d4ed8;}
 </style>
 """
 
@@ -71,13 +79,15 @@ def build_dashboard_data():
     return metrics, logs, drivers, segments, risk, alerts, comparison
 
 
-def metric_card(label: str, value: str, caption: str = ""):
+def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
+    badge_html = f'<div class="metric-badge">{badge}</div>' if badge else ""
     st.markdown(
         f"""
         <div class="metric-card">
             <div class="metric-label">{label}</div>
             <div class="metric-value">{value}</div>
             <div class="metric-caption">{caption}</div>
+            {badge_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -116,9 +126,9 @@ latest_date = metrics_df["date"].max()
 latest_month = latest_date.strftime("%Y-%m")
 
 with st.sidebar:
-    st.header("대시보드 설정")
+    st.header("분석 설정")
     company_options = sorted(metrics_df["company_name"].unique().tolist())
-    selected_company = st.selectbox("상세 분석 계열사", company_options, index=0)
+    selected_company = st.selectbox("기업금융 상세 분석 계열사", company_options, index=0)
     severity_filter = st.multiselect("경보 심각도", ["High", "Medium", "Low"], default=["High", "Medium", "Low"])
     st.markdown("---")
     st.subheader("데모 질문")
@@ -135,12 +145,13 @@ with st.sidebar:
         st.session_state["qa_answer"] = answer_question(demo_question, risk_df, alerts_df, metrics_df)
     if st.button("연체율 원인 보고서 생성", use_container_width=True):
         st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
-    st.markdown("---")
-    st.caption("샘플 데이터 기반 MVP · 고도화 버전")
+        st.session_state["reason_report_company"] = selected_company
+    st.caption("기업금융 중심 고도화 버전 · PF / 기업대출 / 담보대출 세분화")
 
 selected_snapshot = get_delinquency_snapshot(risk_df, selected_company)
 selected_risk_row = risk_df[risk_df["company_name"] == selected_company].iloc[0]
 segment_table = get_segment_detail_table(segment_df, selected_company)
+portfolio_summary = get_enterprise_portfolio_summary(segment_df, selected_company)
 filtered_alerts = alerts_df[alerts_df["severity"].isin(severity_filter)].copy()
 max_score_company = risk_df.sort_values("risk_score", ascending=False).iloc[0]
 high_alert_count = len(alerts_df[alerts_df["severity"] == "High"])
@@ -149,18 +160,20 @@ avg_score = round(risk_df["risk_score"].mean(), 1)
 st.markdown(
     f"""
     <div class="hero-wrap">
+        <div class="hero-kicker">Enterprise Finance Risk Intelligence</div>
         <div class="hero-title">JB Insight CRO</div>
         <div class="hero-subtitle">
-            계열사별 리스크 데이터를 통합 분석하고, 조기경보·우선순위화·경영진 보고 자동화까지 연결하는
-            그룹 리스크 인텔리전스 대시보드입니다. 전월 대비뿐 아니라 3개월 평균 대비 이탈, 개선/악화 사례 비교,
-            연체율 원인에 대한 경영진 스타일 해석까지 제공합니다.
+            기업금융 포트폴리오를 중심으로 PF, 기업 운전자금, 담보부 대출, 무역금융까지 세분화해 분석하는
+            그룹 리스크 인텔리전스 대시보드입니다. 전월 대비 변화와 3개월 평균 이탈을 동시에 보여주고,
+            연체율 상승·하락 원인을 경영진 문체로 요약하며, 세그먼트 단위 Drill-down까지 제공합니다.
         </div>
         <div class="info-chip-row">
             <div class="info-chip">기준 월 · {latest_month}</div>
-            <div class="info-chip">최고 위험 계열사 · {max_score_company['company_name']}</div>
-            <div class="info-chip">최고 점수 · {int(max_score_company['risk_score'])}점</div>
             <div class="info-chip">상세 분석 계열사 · {selected_company}</div>
+            <div class="info-chip">최고 위험 계열사 · {max_score_company['company_name']}</div>
             <div class="info-chip">High 경보 · {high_alert_count}건</div>
+            <div class="info-chip">PF 비중 · {portfolio_summary['pf_share']}%</div>
+            <div class="info-chip">담보 기반 비중 · {portfolio_summary['secured_share']}%</div>
         </div>
     </div>
     """,
@@ -169,32 +182,33 @@ st.markdown(
 
 row1 = st.columns(4)
 with row1[0]:
-    metric_card("최고 위험 계열사", max_score_company["company_name"], "그룹 기준 최우선 모니터링 대상")
+    metric_card("최고 위험 계열사", max_score_company["company_name"], "그룹 기준 최우선 모니터링 대상", "Group View")
 with row1[1]:
-    metric_card("전체 경보 건수", f"{len(alerts_df)}건", f"High {high_alert_count}건 포함")
+    metric_card("평균 리스크 점수", f"{avg_score}점", "계열사 평균 위험 수준", "Risk Score")
 with row1[2]:
-    metric_card("평균 리스크 점수", f"{avg_score}점", "계열사 평균 위험 수준")
+    metric_card(f"{selected_company} 현재 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot['headline'], "Credit View")
 with row1[3]:
-    metric_card(f"{selected_company} 현재 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot['headline'])
+    metric_card("전체 경보 건수", f"{len(alerts_df)}건", f"High {high_alert_count}건 포함", "Alert Monitor")
 
 row2 = st.columns(4)
 with row2[0]:
-    metric_card("전월 대비 변화", f"{selected_snapshot['mom_change_pp']:+.2f}%p", f"변화율 {selected_snapshot['mom_change_pct']}%")
+    metric_card("전월 대비 변화", f"{selected_snapshot['mom_change_pp']:+.2f}%p", f"변화율 {selected_snapshot['mom_change_pct']}%", "MoM")
 with row2[1]:
-    metric_card("3개월 평균", f"{selected_snapshot['trailing_3m_avg']:.2f}%", f"현재 대비 {selected_snapshot['vs_3m_avg_pp']:+.2f}%p")
+    metric_card("3개월 평균 대비", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p", f"기준 평균 {selected_snapshot['trailing_3m_avg']:.2f}%", "3M Avg")
 with row2[2]:
-    metric_card("개선 사례", comparison_data['best_company'], f"전월 대비 {comparison_data['best_change_pp']:+.2f}%p · {comparison_data['best_summary']}")
+    metric_card("개선 사례", comparison_data['best_company'], f"{comparison_data['best_change_pp']:+.2f}%p · {comparison_data['best_summary']}", "Best Case")
 with row2[3]:
-    metric_card("악화 사례", comparison_data['worst_company'], f"전월 대비 {comparison_data['worst_change_pp']:+.2f}%p · {comparison_data['worst_summary']}")
+    metric_card("악화 사례", comparison_data['worst_company'], f"{comparison_data['worst_change_pp']:+.2f}%p · {comparison_data['worst_summary']}", "Watchlist")
 
 st.markdown("### 핵심 모니터링")
-tab1, tab2, tab3, tab4 = st.tabs(["리스크 랭킹", "조기경보", "심층 원인 분석", "보고서 & Q&A"])
+tab1, tab2, tab3, tab4 = st.tabs(["그룹 현황", "조기경보 & 추이", "기업금융 세부 포트폴리오", "보고서 & Q&A"])
 
 with tab1:
-    left, right = st.columns([1.12, 1])
+    left, right = st.columns([1.1, 0.9])
     with left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">계열사별 리스크 랭킹</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">전월 대비 변화, 3개월 평균 대비 이탈, 드라이버 요약을 함께 제공합니다.</div>', unsafe_allow_html=True)
         ranked = risk_df[["company_name", "company_type", "risk_score", "risk_level", "latest_delinquency_rate", "delinquency_change_pp", "vs_3m_avg_pp", "positive_driver_summary", "negative_driver_summary"]].rename(
             columns={
                 "company_name": "계열사",
@@ -223,7 +237,7 @@ with tab1:
             color_discrete_map={"High": "#ef4444", "Medium": "#f59e0b", "Low": "#10b981"},
         )
         fig.update_traces(textposition="outside")
-        fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=0))
+        fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -233,7 +247,7 @@ with tab1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
-    left, right = st.columns([1.05, 1])
+    left, right = st.columns([1, 1])
     with left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">우선 대응 조기경보</div>', unsafe_allow_html=True)
@@ -255,61 +269,83 @@ with tab2:
             "exposure_sme": "중소기업 익스포저",
         }
         trend_fig = px.line(metrics_df.sort_values("date"), x="date", y=metric_choice, color="company_name", markers=True, title=f"월별 {metric_label_map[metric_choice]} 추이")
-        trend_fig.update_layout(height=400, margin=dict(l=0, r=0, t=45, b=0))
+        trend_fig.update_layout(height=410, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(trend_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab3:
-    top_left, top_right = st.columns([1, 1])
+    top_left, top_right = st.columns([0.95, 1.05])
     with top_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="small-title">{selected_company} 연체율 카드형 요약</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="small-title">{selected_company} 카드형 요약</div>', unsafe_allow_html=True)
         render_reason_box("경영진 해석", selected_snapshot['headline'], positive=(selected_snapshot['mom_change_pp'] <= 0))
         render_reason_box("연체율 하락/개선 이유", selected_snapshot['positive_driver_summary'], positive=True)
         render_reason_box("연체율 상승/악화 이유", selected_snapshot['negative_driver_summary'], positive=False)
         st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="small-title">{selected_company} 포트폴리오 핵심 요약</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="premium-note">PF 비중 <b>{portfolio_summary["pf_share"]}%</b> · 담보 기반 비중 <b>{portfolio_summary["secured_share"]}%</b><br>가장 큰 세그먼트는 <b>{portfolio_summary["largest_balance_segment"]}</b>이며 잔액은 <b>{portfolio_summary["largest_balance"]}</b>입니다.<br>가장 악화된 세그먼트는 <b>{portfolio_summary["worst_segment"]}</b>({portfolio_summary["worst_change_pp"]:+.2f}%p), 가장 개선된 세그먼트는 <b>{portfolio_summary["best_segment"]}</b>({portfolio_summary["best_change_pp"]:+.2f}%p)입니다.</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
     with top_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="small-title">{selected_company} 비교 관점 요약</div>', unsafe_allow_html=True)
-        st.markdown(f"- 현재 연체율: **{selected_snapshot['current_rate']:.2f}%**")
-        st.markdown(f"- 전월 대비: **{selected_snapshot['mom_change_pp']:+.2f}%p**")
-        st.markdown(f"- 3개월 평균 대비: **{selected_snapshot['vs_3m_avg_pp']:+.2f}%p**")
-        st.markdown(f"- 방향성 판단: **{selected_snapshot['direction']}**")
-        st.markdown(f"- 주요 개선 요인: {selected_snapshot['positive_driver_summary']}")
-        st.markdown(f"- 주요 악화 요인: {selected_snapshot['negative_driver_summary']}")
+        st.markdown(f'<div class="small-title">{selected_company} 세그먼트 상세 변화</div>', unsafe_allow_html=True)
+        st.dataframe(segment_table, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    bottom_left, bottom_right = st.columns([1.05, 1])
-    with bottom_left:
-        st.markdown('<div class="section-card report-box">', unsafe_allow_html=True)
-        st.markdown(f'<div class="small-title">{selected_company} 연체율 원인 분석 보고서</div>', unsafe_allow_html=True)
-        if "reason_report" not in st.session_state or st.session_state.get("reason_report_company") != selected_company:
-            st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
-            st.session_state["reason_report_company"] = selected_company
-        if st.button("선택 계열사 기준 보고서 새로고침", use_container_width=True):
-            st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
-            st.session_state["reason_report_company"] = selected_company
-        st.text_area("임원 보고용 연체율 분석", st.session_state["reason_report"], height=430)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with bottom_right:
+    mid_left, mid_right = st.columns([1, 1])
+    with mid_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="small-title">{selected_company} 세그먼트별 상세 변화</div>', unsafe_allow_html=True)
-        st.dataframe(segment_table, use_container_width=True, hide_index=True)
-        seg_fig = px.bar(segment_table, x="세그먼트", y="연체율 변화(%p)", color="연체율 변화(%p)", color_continuous_scale=["#10b981", "#f59e0b", "#ef4444"], title="세그먼트별 연체율 변화")
-        seg_fig.update_layout(height=330, margin=dict(l=0, r=0, t=40, b=0), coloraxis_showscale=False)
+        st.markdown('<div class="small-title">세그먼트별 연체율 변화</div>', unsafe_allow_html=True)
+        seg_fig = px.bar(
+            segment_table,
+            x="세그먼트",
+            y="연체율 변화(%p)",
+            color="담보유형",
+            text="연체율 변화(%p)",
+            title="PF · 기업대출 · 담보대출 세그먼트 변화"
+        )
+        seg_fig.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(seg_fig, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with mid_right:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">세그먼트 리스크 포지셔닝</div>', unsafe_allow_html=True)
+        scatter = px.scatter(
+            segment_table,
+            x="잔액 변화",
+            y="연체율 변화(%p)",
+            size="현재 잔액",
+            color="담보유형",
+            hover_name="세그먼트",
+            symbol="업종",
+            title="잔액 증가와 연체율 변화의 동시 모니터링"
+        )
+        scatter.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(scatter, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab4:
     left, right = st.columns([1.05, 0.95])
     with left:
         st.markdown('<div class="section-card report-box">', unsafe_allow_html=True)
+        st.markdown(f'<div class="small-title">{selected_company} 임원 보고용 연체율 분석</div>', unsafe_allow_html=True)
+        if "reason_report" not in st.session_state or st.session_state.get("reason_report_company") != selected_company:
+            st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+            st.session_state["reason_report_company"] = selected_company
+        if st.button("선택 계열사 기준 보고서 새로고침", use_container_width=True):
+            st.session_state["reason_report"] = generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+            st.session_state["reason_report_company"] = selected_company
+        st.text_area("임원 보고용 연체율 분석", st.session_state["reason_report"], height=460)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-card report-box">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">경영진 그룹 브리프</div>', unsafe_allow_html=True)
         if st.button("경영진 보고서 생성", use_container_width=True):
             st.session_state["executive_report"] = generate_executive_report(risk_df, alerts_df, latest_month)
         if "executive_report" not in st.session_state:
             st.session_state["executive_report"] = generate_executive_report(risk_df, alerts_df, latest_month)
-        st.text_area("자동 생성 보고서", st.session_state["executive_report"], height=330)
+        st.text_area("자동 생성 보고서", st.session_state["executive_report"], height=300)
         st.markdown('</div>', unsafe_allow_html=True)
     with right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -323,4 +359,11 @@ with tab4:
             st.markdown(f"- {item}")
         st.markdown('</div>', unsafe_allow_html=True)
 
-st.caption("샘플 데이터 기반 데모 · 카드형 요약, 3개월 평균 비교, 개선/악화 사례 비교, 임원 보고 스타일 분석 포함")
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">기업금융 포커스 포인트</div>', unsafe_allow_html=True)
+        st.markdown("- PF / 프로젝트금융은 만기 구조와 차환 부담을 별도 관리")
+        st.markdown("- 기업 운전자금대출은 업종 편중과 차주군 질 변화 동시 점검")
+        st.markdown("- 담보대출은 담보가치 재평가와 회수정책의 실효성을 함께 추적")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+st.caption("샘플 데이터 기반 데모 · 기업금융 중심 세분화(PF, 기업 운전자금, 담보대출, 무역금융) 및 고급형 UI 적용")

@@ -245,24 +245,27 @@ def detect_alerts(metrics_df: pd.DataFrame, logs_df: pd.DataFrame) -> pd.DataFra
             })
 
     latest_month = metrics_df["date"].max().to_period("M")
-    recent_logs = logs_df[logs_df["date"].dt.to_period("M") == latest_month]
-    for _, row in recent_logs.iterrows():
-        alerts.append({
-            "company_name": row["company_name"],
-            "alert_type": row["issue_type"],
-            "severity": row["severity"],
-            "detail": row["description"],
-            "recommended_action": "세부 원인 로그를 검토하고 즉시 대응 계획을 수립하세요.",
-        })
+    recent_logs = logs_df[logs_df["date"].dt.to_period("M") == latest_month].copy()
+    if not recent_logs.empty:
+        for _, row in recent_logs.iterrows():
+            if row["severity"] in ["High", "Medium"]:
+                alerts.append(
+                    {
+                        "company_name": row["company_name"],
+                        "alert_type": row["issue_type"],
+                        "severity": row["severity"],
+                        "detail": row["description"],
+                        "recommended_action": "세부 원인 로그를 검토하고 즉시 대응 계획을 수립하세요.",
+                    }
+                )
 
     if not alerts:
         return pd.DataFrame(columns=["company_name", "alert_type", "severity", "detail", "recommended_action"])
 
-    severity_order = {"High": 2, "Medium": 1, "Low": 0}
-    alert_df = pd.DataFrame(alerts)
-    alert_df["severity_rank"] = alert_df["severity"].map(severity_order)
-    alert_df = alert_df.sort_values(["severity_rank", "company_name"], ascending=[False, True])
-    return alert_df.drop(columns=["severity_rank"]).reset_index(drop=True)
+    alerts_df = pd.DataFrame(alerts).drop_duplicates()
+    severity_rank = {"High": 3, "Medium": 2, "Low": 1}
+    alerts_df["severity_rank"] = alerts_df["severity"].map(severity_rank)
+    return alerts_df.sort_values(["severity_rank", "company_name"], ascending=[False, True]).drop(columns=["severity_rank"]).reset_index(drop=True)
 
 
 def generate_executive_report(risk_df: pd.DataFrame, alerts_df: pd.DataFrame, latest_month: str) -> str:
@@ -272,27 +275,27 @@ def generate_executive_report(risk_df: pd.DataFrame, alerts_df: pd.DataFrame, la
     lines = [
         f"[JB Insight CRO] {latest_month} 그룹 리스크 브리프",
         "",
-        "1. Executive Summary",
-        f"- 이번 달 그룹 기준 최고 위험 계열사는 {top_company['company_name']}이며 리스크 점수는 {int(top_company['risk_score'])}점입니다.",
+        "1. 종합 요약",
+        f"- 최고 위험 계열사는 {top_company['company_name']}이며 그룹 리스크 점수는 {int(top_company['risk_score'])}점입니다.",
         f"- 해당 계열사의 연체율은 전월 대비 {top_company['delinquency_change_pp']:+.2f}%p, 최근 3개월 평균 대비 {top_company['vs_3m_avg_pp']:+.2f}%p 변동했습니다.",
         f"- 경영진 관점 해석: {top_company['executive_headline']}",
-        f"- 전체 경보 건수는 {len(alerts_df)}건이며 High 경보는 {len(alerts_df[alerts_df['severity'] == 'High'])}건입니다.",
+        f"- 당월 식별된 주요 경보는 총 {len(alerts_df)}건입니다.",
         "",
-        "2. Key Issues",
+        "2. 핵심 리스크 이슈",
     ]
 
     if len(top_alerts) == 0:
-        lines.append("- 식별된 주요 경보가 없습니다.")
+        lines.append("- 주요 경보 없음")
     else:
         for idx, (_, row) in enumerate(top_alerts.iterrows(), start=1):
             lines.append(f"- 이슈 {idx}: {row['company_name']} / {row['alert_type']} / {row['detail']}")
 
     lines += [
         "",
-        "3. Management Implications",
+        "3. 권고 사항",
         "- 위험도 상위 계열사는 전월 대비 변화뿐 아니라 3개월 평균 대비 이탈 정도를 함께 관리해야 합니다.",
-        "- 연체율 개선 요인은 우수 사례로 분류해 유사 포트폴리오에 확산할 필요가 있습니다.",
-        "- 악화 계열사는 세그먼트 단위로 원인과 회수 전략을 재점검해야 합니다.",
+        "- 기업금융 포트폴리오 내 PF, 기업 운전자금, 담보부 대출 세그먼트를 분리 모니터링하고 차환·회수 이슈를 별도 관리해야 합니다.",
+        "- 연체율 개선이 확인된 사례는 심사·회수 프로세스 관점에서 우수 사례로 전파합니다.",
     ]
     return "\n".join(lines)
 
@@ -301,7 +304,6 @@ def get_delinquency_snapshot(risk_df: pd.DataFrame, company_name: str) -> dict:
     row = risk_df[risk_df["company_name"] == company_name].iloc[0]
     direction = "개선" if row["delinquency_change_pp"] < 0 else "악화" if row["delinquency_change_pp"] > 0 else "유지"
     return {
-        "company_name": company_name,
         "current_rate": row["latest_delinquency_rate"],
         "previous_rate": row["previous_delinquency_rate"],
         "mom_change_pp": row["delinquency_change_pp"],
@@ -351,6 +353,74 @@ def get_company_comparison(risk_df: pd.DataFrame) -> dict:
     }
 
 
+def _merge_segment_periods(segment_df: pd.DataFrame, company_name: str) -> pd.DataFrame:
+    company_segments = segment_df[segment_df["company_name"] == company_name].copy()
+    if company_segments.empty:
+        return pd.DataFrame()
+
+    latest_period = company_segments["date"].max()
+    previous_candidates = company_segments[company_segments["date"] < latest_period]["date"]
+    if previous_candidates.empty:
+        return pd.DataFrame()
+    previous_period = previous_candidates.max()
+
+    latest_seg = company_segments[company_segments["date"] == latest_period].rename(
+        columns={
+            "balance": "curr_balance",
+            "delinquency_rate": "curr_delinquency_rate",
+            "customer_count": "curr_customer_count",
+        }
+    )
+    previous_seg = company_segments[company_segments["date"] == previous_period].rename(
+        columns={
+            "balance": "prev_balance",
+            "delinquency_rate": "prev_delinquency_rate",
+            "customer_count": "prev_customer_count",
+        }
+    )
+
+    merge_keys = ["company_name", "portfolio_group", "segment_name", "collateral_type", "industry"]
+    merged = previous_seg.merge(latest_seg, on=merge_keys, how="outer").fillna(0)
+    merged["delinquency_delta"] = (merged["curr_delinquency_rate"] - merged["prev_delinquency_rate"]).round(2)
+    merged["balance_delta"] = (merged["curr_balance"] - merged["prev_balance"]).round(0)
+    merged["customer_delta"] = (merged["curr_customer_count"] - merged["prev_customer_count"]).round(0)
+    merged["latest_period"] = latest_period
+    merged["previous_period"] = previous_period
+    return merged
+
+
+def get_enterprise_portfolio_summary(segment_df: pd.DataFrame, company_name: str) -> dict:
+    merged = _merge_segment_periods(segment_df, company_name)
+    if merged.empty:
+        return {
+            "worst_segment": "-",
+            "worst_change_pp": 0.0,
+            "best_segment": "-",
+            "best_change_pp": 0.0,
+            "pf_share": 0.0,
+            "secured_share": 0.0,
+            "largest_balance_segment": "-",
+            "largest_balance": 0.0,
+        }
+
+    worst = merged.sort_values(["delinquency_delta", "curr_balance"], ascending=[False, False]).iloc[0]
+    best = merged.sort_values(["delinquency_delta", "curr_balance"], ascending=[True, False]).iloc[0]
+    total_balance = float(merged["curr_balance"].sum())
+    pf_balance = float(merged[merged["segment_name"].str.contains("PF|프로젝트", regex=True)]["curr_balance"].sum())
+    secured_balance = float(merged[merged["collateral_type"].str.contains("담보|토지|설비|재고|프로젝트", regex=True)]["curr_balance"].sum())
+    largest = merged.sort_values("curr_balance", ascending=False).iloc[0]
+    return {
+        "worst_segment": worst["segment_name"],
+        "worst_change_pp": worst["delinquency_delta"],
+        "best_segment": best["segment_name"],
+        "best_change_pp": best["delinquency_delta"],
+        "pf_share": round((pf_balance / total_balance) * 100, 1) if total_balance else 0.0,
+        "secured_share": round((secured_balance / total_balance) * 100, 1) if total_balance else 0.0,
+        "largest_balance_segment": largest["segment_name"],
+        "largest_balance": round(float(largest["curr_balance"]), 1),
+    }
+
+
 def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.DataFrame, segment_df: pd.DataFrame, company_name: str) -> str:
     company_metrics = metrics_df[metrics_df["company_name"] == company_name].sort_values("date")
     if len(company_metrics) < 2:
@@ -360,7 +430,6 @@ def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.
     current_rate = latest["delinquency_rate"]
     previous_rate = previous["delinquency_rate"]
     change_pp = _delta_pp(current_rate, previous_rate)
-    change_pct = _safe_pct_change(current_rate, previous_rate)
     trailing_3m_avg = _previous_n_average(company_metrics, "delinquency_rate", 3)
     vs_3m_avg_pp = _delta_pp(current_rate, trailing_3m_avg)
 
@@ -370,77 +439,105 @@ def generate_delinquency_reason_report(metrics_df: pd.DataFrame, drivers_df: pd.
     positive_summary = _build_driver_summary(company_drivers, direction="positive")
     negative_summary = _build_driver_summary(company_drivers, direction="negative")
 
-    latest_period = latest["date"]
-    previous_period = previous["date"]
-    company_segments = segment_df[segment_df["company_name"] == company_name].copy()
-    prev_seg = company_segments[company_segments["date"] == previous_period].rename(columns={"balance": "prev_balance", "delinquency_rate": "prev_delinquency_rate", "customer_count": "prev_customer_count"})
-    curr_seg = company_segments[company_segments["date"] == latest_period].rename(columns={"balance": "curr_balance", "delinquency_rate": "curr_delinquency_rate", "customer_count": "curr_customer_count"})
-    seg_merged = prev_seg.merge(curr_seg, on=["company_name", "segment_name"], how="outer").fillna(0)
-    seg_merged["delinquency_delta"] = (seg_merged["curr_delinquency_rate"] - seg_merged["prev_delinquency_rate"]).round(2)
-    seg_merged = seg_merged.sort_values("delinquency_delta", ascending=(change_pp < 0))
+    seg_merged = _merge_segment_periods(segment_df, company_name)
+    if seg_merged.empty:
+        return f"[{company_name}] 연체율 변동 분석\n\n세그먼트 데이터가 부족합니다."
+
+    worsening_segments = seg_merged.sort_values(["delinquency_delta", "curr_balance"], ascending=[False, False]).head(3)
+    improving_segments = seg_merged.sort_values(["delinquency_delta", "curr_balance"], ascending=[True, False]).head(2)
+    portfolio_summary = get_enterprise_portfolio_summary(segment_df, company_name)
 
     lines = [
-        f"[{company_name}] 연체율 변동 원인 보고",
+        f"[{company_name}] 기업금융 연체율 원인 분석 보고",
         "",
         "1. Executive Summary",
-        f"- 기준 기간: {previous_period.strftime('%Y-%m')} → {latest_period.strftime('%Y-%m')}",
-        f"- 연체율은 {previous_rate:.2f}%에서 {current_rate:.2f}%로 {change_pp:+.2f}%p 변동했습니다.",
-        f"- 최근 3개월 평균({trailing_3m_avg:.2f}%) 대비 {vs_3m_avg_pp:+.2f}%p 수준입니다.",
+        f"- 기준 기간: {previous['date'].strftime('%Y-%m')} → {latest['date'].strftime('%Y-%m')}",
+        f"- 전사 연체율은 {previous_rate:.2f}%에서 {current_rate:.2f}%로 {change_pp:+.2f}%p 변동했습니다.",
+        f"- 최근 3개월 평균({trailing_3m_avg:.2f}%) 대비 현재 수준은 {vs_3m_avg_pp:+.2f}%p입니다.",
+        f"- 기업금융 포트폴리오 내 PF/프로젝트금융 비중은 {portfolio_summary['pf_share']}%, 담보 기반 익스포저 비중은 {portfolio_summary['secured_share']}%입니다.",
     ]
 
-    if change_pp < 0:
-        lines.append(f"- 경영진 해석: 연체율 하락은 {positive_summary} 중심의 개선 효과가 반영된 결과입니다.")
-    elif change_pp > 0:
-        lines.append(f"- 경영진 해석: 연체율 상승은 {negative_summary} 중심의 악화 요인이 주도했습니다.")
+    if change_pp > 0:
+        lines.append(f"- 종합 판단: 연체율 상승은 {negative_summary} 중심으로 발생했으며, 특히 {portfolio_summary['worst_segment']} 세그먼트의 악화가 전체 포트폴리오 부담을 확대했습니다.")
+    elif change_pp < 0:
+        lines.append(f"- 종합 판단: 연체율 하락은 {positive_summary} 중심의 개선 효과가 반영된 결과이며, {portfolio_summary['best_segment']} 세그먼트의 안정화가 기여했습니다.")
     else:
-        lines.append("- 경영진 해석: 연체율 수준은 전월과 유사하나 세그먼트별 편차 점검이 필요합니다.")
+        lines.append("- 종합 판단: 전사 연체율 수준은 유사하나 세그먼트별 편차가 존재하므로 PF와 담보대출 중심의 미시 점검이 필요합니다.")
 
     lines += [
         "",
-        "2. 주요 드라이버",
+        "2. 주요 원인 진단",
     ]
-
     if company_drivers.empty:
         lines.append("- 식별된 드라이버 데이터가 없습니다.")
     else:
-        for _, row in company_drivers.head(4).iterrows():
+        for _, row in company_drivers.head(5).iterrows():
             impact = "개선" if row["direction"] == "positive" else "악화"
             lines.append(f"- {row['driver_name']} · {impact} 기여 {abs(int(row['contribution_bps']))}bp · {row['description']}")
 
     lines += [
         "",
-        "3. 세그먼트별 상세 변화",
+        "3. 기업금융 세그먼트 세부 분석",
     ]
-    for _, row in seg_merged.head(4).iterrows():
+    for _, row in worsening_segments.iterrows():
         lines.append(
-            f"- {row['segment_name']}: 연체율 {row['prev_delinquency_rate']:.2f}% → {row['curr_delinquency_rate']:.2f}% (Δ {row['delinquency_delta']:+.2f}%p), 잔액 {row['prev_balance']:.0f} → {row['curr_balance']:.0f}"
+            f"- 악화 세그먼트: {row['segment_name']} / 담보유형 {row['collateral_type']} / 업종 {row['industry']} · 연체율 {row['prev_delinquency_rate']:.2f}% → {row['curr_delinquency_rate']:.2f}% (Δ {row['delinquency_delta']:+.2f}%p), 잔액 {row['prev_balance']:.0f} → {row['curr_balance']:.0f}"
         )
+    for _, row in improving_segments.iterrows():
+        if row['delinquency_delta'] < 0:
+            lines.append(
+                f"- 개선 세그먼트: {row['segment_name']} / 담보유형 {row['collateral_type']} / 업종 {row['industry']} · 연체율 {row['prev_delinquency_rate']:.2f}% → {row['curr_delinquency_rate']:.2f}% (Δ {row['delinquency_delta']:+.2f}%p), 잔액 {row['prev_balance']:.0f} → {row['curr_balance']:.0f}"
+            )
 
     lines += [
         "",
-        "4. Management Implications",
-        f"- 개선 요인: {positive_summary}",
-        f"- 악화 요인: {negative_summary}",
-        "- 개선 효과가 확인된 프로세스는 유사 포트폴리오에 확산하고, 악화 세그먼트는 회수 및 심사 정책을 별도 점검합니다.",
-        "- 전월 대비 변화와 3개월 평균 대비 이탈을 함께 관리해 단기 변동과 추세 변화를 동시에 모니터링합니다.",
+        "4. Management Implication",
+        f"- 우선 점검 대상은 {portfolio_summary['worst_segment']}이며, 차환일정·담보재평가·회수전략을 패키지로 점검할 필요가 있습니다.",
+        f"- 방어력 확보 사례는 {portfolio_summary['best_segment']}에서 확인되며, 심사 기준과 조기회수 정책을 타 세그먼트에 확산할 수 있습니다.",
+        f"- 잔액 기준 최대 포트폴리오는 {portfolio_summary['largest_balance_segment']}({portfolio_summary['largest_balance']})로, 자산 규모와 건전성 변화를 함께 관리해야 합니다.",
+        "- 보고 체계는 전월 대비 변화와 3개월 평균 대비 이탈을 병행 관리해 단기 이상징후와 구조적 추세를 동시에 추적해야 합니다.",
     ]
     return "\n".join(lines)
 
 
 def get_segment_detail_table(segment_df: pd.DataFrame, company_name: str) -> pd.DataFrame:
-    company_segments = segment_df[segment_df["company_name"] == company_name].copy()
-    if company_segments.empty:
+    merged = _merge_segment_periods(segment_df, company_name)
+    if merged.empty:
         return pd.DataFrame()
-
-    latest_period = company_segments["date"].max()
-    previous_period = company_segments[company_segments["date"] < latest_period]["date"].max()
-    latest_seg = company_segments[company_segments["date"] == latest_period].rename(columns={"balance": "현재 잔액", "delinquency_rate": "현재 연체율", "customer_count": "현재 고객수"})
-    previous_seg = company_segments[company_segments["date"] == previous_period].rename(columns={"balance": "전월 잔액", "delinquency_rate": "전월 연체율", "customer_count": "전월 고객수"})
-    merged = previous_seg.merge(latest_seg, on=["company_name", "segment_name"], how="outer").fillna(0)
-    merged["연체율 변화(%p)"] = (merged["현재 연체율"] - merged["전월 연체율"]).round(2)
-    merged["잔액 변화"] = (merged["현재 잔액"] - merged["전월 잔액"]).round(0)
-    merged = merged.rename(columns={"segment_name": "세그먼트"})
-    return merged[["세그먼트", "전월 연체율", "현재 연체율", "연체율 변화(%p)", "전월 잔액", "현재 잔액", "잔액 변화", "전월 고객수", "현재 고객수"]].sort_values("연체율 변화(%p)", ascending=False)
+    result = merged.rename(
+        columns={
+            "portfolio_group": "포트폴리오군",
+            "segment_name": "세그먼트",
+            "collateral_type": "담보유형",
+            "industry": "업종",
+            "prev_delinquency_rate": "전월 연체율",
+            "curr_delinquency_rate": "현재 연체율",
+            "prev_balance": "전월 잔액",
+            "curr_balance": "현재 잔액",
+            "prev_customer_count": "전월 차주수",
+            "curr_customer_count": "현재 차주수",
+        }
+    )
+    result["연체율 변화(%p)"] = result["delinquency_delta"]
+    result["잔액 변화"] = result["balance_delta"]
+    result["차주수 변화"] = result["customer_delta"]
+    return result[
+        [
+            "포트폴리오군",
+            "세그먼트",
+            "담보유형",
+            "업종",
+            "전월 연체율",
+            "현재 연체율",
+            "연체율 변화(%p)",
+            "전월 잔액",
+            "현재 잔액",
+            "잔액 변화",
+            "전월 차주수",
+            "현재 차주수",
+            "차주수 변화",
+        ]
+    ].sort_values(["연체율 변화(%p)", "현재 잔액"], ascending=[False, False])
 
 
 def answer_question(question: str, risk_df: pd.DataFrame, alerts_df: pd.DataFrame, metrics_df: pd.DataFrame) -> str:
