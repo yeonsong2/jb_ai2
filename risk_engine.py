@@ -571,6 +571,137 @@ def get_segment_detail_table(segment_df: pd.DataFrame, company_name: str) -> pd.
     ].sort_values(["연체율 변화(%p)", "현재 잔액"], ascending=[False, False])
 
 
+def get_agent_execution_table(company_name: str, risk_df: pd.DataFrame, alerts_df: pd.DataFrame, segment_df: pd.DataFrame) -> pd.DataFrame:
+    snapshot = get_delinquency_snapshot(risk_df, company_name)
+    portfolio_summary = get_enterprise_portfolio_summary(segment_df, company_name)
+    merged = _merge_segment_periods(segment_df, company_name)
+    company_alerts = alerts_df[alerts_df["company_name"] == company_name].copy()
+
+    if not merged.empty:
+        pf_segments = merged[merged["segment_name"].str.contains("PF|프로젝트", regex=True, na=False)]
+        loan_segments = merged[~merged["segment_name"].str.contains("PF|프로젝트", regex=True, na=False)]
+        pf_focus = pf_segments.sort_values(["delinquency_delta", "curr_balance"], ascending=[False, False]).iloc[0]["segment_name"] if not pf_segments.empty else portfolio_summary["worst_segment"]
+        loan_focus = loan_segments.sort_values(["delinquency_delta", "curr_balance"], ascending=[False, False]).iloc[0]["segment_name"] if not loan_segments.empty else portfolio_summary["largest_balance_segment"]
+    else:
+        pf_focus = portfolio_summary["worst_segment"]
+        loan_focus = portfolio_summary["largest_balance_segment"]
+
+    top_alert = company_alerts.iloc[0]["alert_type"] if not company_alerts.empty else "High 경보 없음"
+    best_company = risk_df.sort_values(["delinquency_change_pp", "risk_score"], ascending=[True, False]).iloc[0]["company_name"]
+
+    rows = [
+        {
+            "Agent": "Orchestrator Agent",
+            "주요 입력": "그룹 리스크 점수, 경보, 세그먼트 요약",
+            "핵심 판단": f"{company_name} 전사 연체율 {snapshot['mom_change_pp']:+.2f}%p, Watchlist 유지",
+            "출력": f"메인 스토리 {company_name} / 악화 세그먼트 {portfolio_summary['worst_segment']}",
+        },
+        {
+            "Agent": "Portfolio Intake Agent",
+            "주요 입력": "세그먼트 잔액, 차주수, 담보유형",
+            "핵심 판단": f"PF 비중 {portfolio_summary['pf_share']}%, 담보 기반 {portfolio_summary['secured_share']}%",
+            "출력": f"최대 익스포저 {portfolio_summary['largest_balance_segment']}",
+        },
+        {
+            "Agent": "Early Warning Agent",
+            "주요 입력": "전월 대비 지표 변화, 이벤트 로그",
+            "핵심 판단": f"{company_name} 기준 {len(company_alerts)}건 경보 / 대표 {top_alert}",
+            "출력": "즉시 점검 대상 경보 카드",
+        },
+        {
+            "Agent": "PF Surveillance Agent",
+            "주요 입력": "PF 브릿지론, 본PF, 프로젝트금융 세그먼트",
+            "핵심 판단": f"PF 포커스 세그먼트 {pf_focus}",
+            "출력": "PF 세그먼트별 연체율 변화 차트",
+        },
+        {
+            "Agent": "Corporate Loan Agent",
+            "주요 입력": "기업운전자금, 시설자금, 담보부 대출 세그먼트",
+            "핵심 판단": f"기업대출 포커스 세그먼트 {loan_focus}",
+            "출력": "기업대출 세그먼트 Drill-down",
+        },
+        {
+            "Agent": "Collateral & Recovery Agent",
+            "주요 입력": "담보유형, 잔액 변화, 회수 관점 포지셔닝",
+            "핵심 판단": f"담보 재평가 우선 세그먼트 {portfolio_summary['worst_segment']}",
+            "출력": "잔액 변화 vs 연체율 변화 포지셔닝",
+        },
+        {
+            "Agent": "Benchmark Agent",
+            "주요 입력": "계열사 간 연체율, 추세, 드라이버 비교",
+            "핵심 판단": f"개선 벤치마크 {best_company}",
+            "출력": "그룹 비교 랭킹 및 개선/악화 테이블",
+        },
+        {
+            "Agent": "Executive Reporting Agent",
+            "주요 입력": "전 Agent 결과 종합",
+            "핵심 판단": "경영진 보고 언어로 재구성",
+            "출력": "임원 보고서 및 Q&A 응답",
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def get_action_item_table(company_name: str, risk_df: pd.DataFrame, alerts_df: pd.DataFrame, segment_df: pd.DataFrame) -> pd.DataFrame:
+    snapshot = get_delinquency_snapshot(risk_df, company_name)
+    portfolio_summary = get_enterprise_portfolio_summary(segment_df, company_name)
+    company_alerts = alerts_df[alerts_df["company_name"] == company_name].copy()
+    top_alert = company_alerts.iloc[0]["alert_type"] if not company_alerts.empty else "High 경보 상세 리뷰"
+
+    rows = [
+        {"시점": "오늘", "소관 Agent": "Early Warning Agent", "액션 아이템": f"{top_alert} 상세 로그와 발생 부서 재확인", "목적": "즉시 경보 원인 확정"},
+        {"시점": "오늘", "소관 Agent": "PF Surveillance Agent", "액션 아이템": f"{portfolio_summary['worst_segment']} 차환 일정 및 만기집중 점검", "목적": "PF 유동성 리스크 통제"},
+        {"시점": "오늘", "소관 Agent": "Collateral & Recovery Agent", "액션 아이템": f"{portfolio_summary['largest_balance_segment']} 담보 재평가 대상 선별", "목적": "방어력 약화 구간 선제 대응"},
+        {"시점": "이번 주", "소관 Agent": "Corporate Loan Agent", "액션 아이템": f"{company_name} 취약 차주군 업종 재분류 및 한도 재점검", "목적": "기업대출 포트폴리오 재정렬"},
+        {"시점": "이번 주", "소관 Agent": "Benchmark Agent", "액션 아이템": "개선 벤치마크 계열사의 회수·심사 우수 사례 비교", "목적": "즉시 전파 가능한 Best Practice 확보"},
+        {"시점": "이번 주", "소관 Agent": "Executive Reporting Agent", "액션 아이템": "심사위원/임원용 브리프와 발표 스크립트 동기화", "목적": "의사결정 전달력 강화"},
+        {"시점": "다음 달", "소관 Agent": "Orchestrator Agent", "액션 아이템": f"{company_name} 3개월 평균 대비 이탈 폭 재점검", "목적": "단기 이상징후와 구조적 추세 동시 관리"},
+        {"시점": "다음 달", "소관 Agent": "Portfolio Intake Agent", "액션 아이템": "PF 비중·담보 기반 비중 재산출 및 포트폴리오 구조 비교", "목적": "포트폴리오 구조 변화 추적"},
+        {"시점": "다음 달", "소관 Agent": "Collateral & Recovery Agent", "액션 아이템": "회수정책 성과와 담보 방어력 지표를 월간 KPI로 재측정", "목적": "정책 효과 검증"},
+    ]
+    return pd.DataFrame(rows)
+
+
+def simulate_what_if_scenario(
+    company_name: str,
+    risk_df: pd.DataFrame,
+    segment_df: pd.DataFrame,
+    pf_refinancing_shock_pp: float = 0.0,
+    collateral_recovery_drop_pp: float = 0.0,
+    sme_slowdown_shock_pp: float = 0.0,
+) -> dict:
+    snapshot = get_delinquency_snapshot(risk_df, company_name)
+    portfolio_summary = get_enterprise_portfolio_summary(segment_df, company_name)
+    row = risk_df[risk_df["company_name"] == company_name].iloc[0]
+
+    pf_component = round(pf_refinancing_shock_pp * (portfolio_summary["pf_share"] / 100), 2)
+    collateral_component = round(collateral_recovery_drop_pp * (portfolio_summary["secured_share"] / 100) * 0.7, 2)
+    sme_sensitivity = 0.45 + min(float(row["sme_score"]) / 40, 0.25)
+    sme_component = round(sme_slowdown_shock_pp * sme_sensitivity, 2)
+
+    base_rate = float(snapshot["current_rate"])
+    stress_delta = round(pf_component + collateral_component + sme_component, 2)
+    projected_rate = round(base_rate + stress_delta, 2)
+    projected_risk_score = round(min(float(row["risk_score"]) + stress_delta * 30 + pf_refinancing_shock_pp * 10 + collateral_recovery_drop_pp * 8 + sme_slowdown_shock_pp * 6, 100), 1)
+
+    if projected_risk_score >= 75:
+        projected_risk_level = "High"
+    elif projected_risk_score >= 45:
+        projected_risk_level = "Medium"
+    else:
+        projected_risk_level = "Low"
+
+    impact_summary = f"PF {pf_component:+.2f}%p / 담보 {collateral_component:+.2f}%p / SME {sme_component:+.2f}%p"
+    return {
+        "base_rate": round(base_rate, 2),
+        "projected_rate": projected_rate,
+        "stress_delta": stress_delta,
+        "projected_risk_score": projected_risk_score,
+        "projected_risk_level": projected_risk_level,
+        "impact_summary": impact_summary,
+    }
+
+
 def answer_question(question: str, risk_df: pd.DataFrame, alerts_df: pd.DataFrame, metrics_df: pd.DataFrame) -> str:
     top_company = risk_df.sort_values("risk_score", ascending=False).iloc[0]
     best_company = risk_df.sort_values(["delinquency_change_pp", "risk_score"], ascending=[True, False]).iloc[0]

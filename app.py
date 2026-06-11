@@ -10,10 +10,13 @@ from risk_engine import (
     detect_alerts,
     generate_delinquency_reason_report,
     generate_executive_report,
+    get_action_item_table,
+    get_agent_execution_table,
     get_company_comparison,
     get_delinquency_snapshot,
     get_enterprise_portfolio_summary,
     get_segment_detail_table,
+    simulate_what_if_scenario,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -22,6 +25,30 @@ METRICS_PATH = DATA_DIR / "sample_risk_metrics.csv"
 LOGS_PATH = DATA_DIR / "sample_risk_logs.csv"
 DRIVERS_PATH = DATA_DIR / "sample_delinquency_drivers.csv"
 SEGMENT_PATH = DATA_DIR / "sample_segment_metrics.csv"
+
+REQUIRED_COLUMNS = {
+    "metrics": [
+        "date",
+        "company_name",
+        "company_type",
+        "delinquency_rate",
+        "complaints",
+        "abnormal_events",
+        "exposure_real_estate",
+        "exposure_sme",
+    ],
+    "logs": ["date", "company_name", "issue_type", "severity", "description"],
+    "drivers": ["date", "company_name", "driver_name", "direction", "contribution_bps", "description"],
+    "segments": ["date", "company_name", "segment_name", "balance", "delinquency_rate", "customer_count"],
+}
+
+DEMO_MODES = {
+    "전체 흐름": "Orchestrator Agent가 전체 그룹을 스캔하고 핵심 Watchlist를 지정하는 기본 시연 모드입니다.",
+    "Step 1. 그룹 스캔": "그룹 기준 최고 위험 계열사, 경보 건수, 비교 랭킹을 먼저 보여주는 심사위원용 시작 장면입니다.",
+    "Step 2. PF/기업대출 분석": "PF Surveillance Agent와 Corporate Loan Agent가 세그먼트 악화 원인을 drill-down 하는 장면입니다.",
+    "Step 3. 담보/회수 우선순위": "Collateral & Recovery Agent가 담보 재평가와 회수정책 우선순위를 제시하는 장면입니다.",
+    "Step 4. 경영진 보고": "Executive Reporting Agent가 보고서와 질의응답으로 마무리하는 장면입니다.",
+}
 
 st.set_page_config(page_title="JB Insight CRO Multi-Agent", page_icon="🤖", layout="wide")
 
@@ -53,6 +80,7 @@ CUSTOM_CSS = """
     .summary-bad {border-left:6px solid #ef4444; background:#fff7f7; border-radius:16px; padding:14px 16px; margin-bottom:12px;}
     .premium-note {background: linear-gradient(135deg, #eff6ff, #f8fafc); border:1px solid #dbeafe; border-radius:18px; padding:16px 18px; color:#1e3a8a;}
     .report-box textarea {font-size:0.95rem !important; line-height:1.6 !important;}
+    .demo-banner {background: linear-gradient(90deg, #dbeafe, #eff6ff); border:1px solid #bfdbfe; border-radius:16px; padding:14px 18px; margin-bottom:18px; color:#1e3a8a;}
     div[data-testid="stTabs"] button[role="tab"] {font-weight: 700; border-radius: 999px; padding: 10px 18px;}
     div[data-testid="stTabs"] button[aria-selected="true"] {background: linear-gradient(90deg, #dbeafe, #eff6ff); color: #1d4ed8;}
 </style>
@@ -70,13 +98,19 @@ def load_data():
     return metrics, logs, drivers, segments
 
 
+def validate_required_columns(name: str, df: pd.DataFrame, required_columns: list[str]):
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        st.error(f"배포 데이터 스키마 불일치 · {name}에 필수 컬럼이 없습니다: {', '.join(missing)}")
+        st.stop()
+
+
 @st.cache_data
-def build_dashboard_data():
-    metrics, logs, drivers, segments = load_data()
-    risk = calculate_company_risk(metrics, logs, drivers)
-    alerts = detect_alerts(metrics, logs)
+def build_dashboard_data(metrics_df: pd.DataFrame, logs_df: pd.DataFrame, drivers_df: pd.DataFrame, segment_df: pd.DataFrame):
+    risk = calculate_company_risk(metrics_df, logs_df, drivers_df)
+    alerts = detect_alerts(metrics_df, logs_df)
     comparison = get_company_comparison(risk)
-    return metrics, logs, drivers, segments, risk, alerts, comparison
+    return risk, alerts, comparison
 
 
 def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
@@ -94,6 +128,7 @@ def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
     )
 
 
+
 def render_alert_card(row):
     severity_class = {"High": "alert-high", "Medium": "alert-medium", "Low": "alert-low"}.get(row["severity"], "alert-low")
     st.markdown(
@@ -106,6 +141,7 @@ def render_alert_card(row):
         """,
         unsafe_allow_html=True,
     )
+
 
 
 def render_reason_box(title: str, content: str, positive: bool = True):
@@ -121,14 +157,45 @@ def render_reason_box(title: str, content: str, positive: bool = True):
     )
 
 
-metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df, comparison_data = build_dashboard_data()
+metrics_df, logs_df, drivers_df, segment_df = load_data()
+validate_required_columns("sample_risk_metrics.csv", metrics_df, REQUIRED_COLUMNS["metrics"])
+validate_required_columns("sample_risk_logs.csv", logs_df, REQUIRED_COLUMNS["logs"])
+validate_required_columns("sample_delinquency_drivers.csv", drivers_df, REQUIRED_COLUMNS["drivers"])
+validate_required_columns("sample_segment_metrics.csv", segment_df, REQUIRED_COLUMNS["segments"])
+
+risk_df, alerts_df, comparison_data = build_dashboard_data(metrics_df, logs_df, drivers_df, segment_df)
 latest_date = metrics_df["date"].max()
 latest_month = latest_date.strftime("%Y-%m")
+company_options = sorted(metrics_df["company_name"].unique().tolist())
+
+if "selected_company" not in st.session_state:
+    st.session_state["selected_company"] = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
+if "demo_mode" not in st.session_state:
+    st.session_state["demo_mode"] = "전체 흐름"
 
 with st.sidebar:
     st.header("멀티에이전트 분석 설정")
-    company_options = sorted(metrics_df["company_name"].unique().tolist())
-    selected_company = st.selectbox("메인 스토리 계열사 · Agent Drill-down 대상", company_options, index=company_options.index("JB우리캐피탈") if "JB우리캐피탈" in company_options else 0)
+    st.subheader("심사위원 데모 모드")
+    demo_col1, demo_col2 = st.columns(2)
+    with demo_col1:
+        if st.button("심사위원 데모 시작", use_container_width=True):
+            st.session_state["demo_mode"] = "Step 1. 그룹 스캔"
+            st.session_state["selected_company"] = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
+        if st.button("JB우리캐피탈 집중", use_container_width=True):
+            st.session_state["demo_mode"] = "Step 2. PF/기업대출 분석"
+            st.session_state["selected_company"] = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
+    with demo_col2:
+        if st.button("그룹 비교 보기", use_container_width=True):
+            st.session_state["demo_mode"] = "Step 1. 그룹 스캔"
+        if st.button("임원 보고 마무리", use_container_width=True):
+            st.session_state["demo_mode"] = "Step 4. 경영진 보고"
+
+    st.markdown("---")
+    selected_company = st.selectbox(
+        "메인 스토리 계열사 · Agent Drill-down 대상",
+        company_options,
+        key="selected_company",
+    )
     severity_filter = st.multiselect("경보 심각도", ["High", "Medium", "Low"], default=["High", "Medium", "Low"])
     st.markdown("---")
     st.subheader("Interactive Q&A Agent")
@@ -156,6 +223,8 @@ filtered_alerts = alerts_df[alerts_df["severity"].isin(severity_filter)].copy()
 max_score_company = risk_df.sort_values("risk_score", ascending=False).iloc[0]
 high_alert_count = len(alerts_df[alerts_df["severity"] == "High"])
 avg_score = round(risk_df["risk_score"].mean(), 1)
+agent_trace_df = get_agent_execution_table(selected_company, risk_df, alerts_df, segment_df)
+action_item_df = get_action_item_table(selected_company, risk_df, alerts_df, segment_df)
 
 st.markdown(
     f"""
@@ -181,13 +250,23 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown(
+    f"""
+    <div class="demo-banner">
+        <b>현재 데모 모드 · {st.session_state['demo_mode']}</b><br>
+        {DEMO_MODES.get(st.session_state['demo_mode'], DEMO_MODES['전체 흐름'])}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 row1 = st.columns(4)
 with row1[0]:
     metric_card("Orchestrator Watchlist", max_score_company["company_name"], "그룹 기준 최우선 점검 대상", "Group View")
 with row1[1]:
     metric_card("평균 리스크 점수", f"{avg_score}점", "계열사 평균 위험 수준", "Risk Score")
 with row1[2]:
-    metric_card(f"{selected_company} Agent 종합 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot['headline'], "Main Story")
+    metric_card(f"{selected_company} Agent 종합 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot["headline"], "Main Story")
 with row1[3]:
     metric_card("Early Warning Agent 경보", f"{len(alerts_df)}건", f"High {high_alert_count}건 포함", "Alert Monitor")
 
@@ -197,21 +276,26 @@ with row2[0]:
 with row2[1]:
     metric_card("3개월 평균 대비", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p", f"기준 평균 {selected_snapshot['trailing_3m_avg']:.2f}%", "3M Avg")
 with row2[2]:
-    metric_card("개선 벤치마크", comparison_data['best_company'], f"{comparison_data['best_change_pp']:+.2f}%p · {comparison_data['best_summary']}", "Benchmark")
+    metric_card("개선 벤치마크", comparison_data["best_company"], f"{comparison_data['best_change_pp']:+.2f}%p · {comparison_data['best_summary']}", "Benchmark")
 with row2[3]:
-    metric_card("악화 벤치마크", comparison_data['worst_company'], f"{comparison_data['worst_change_pp']:+.2f}%p · {comparison_data['worst_summary']}", "Watchlist")
+    metric_card("악화 벤치마크", comparison_data["worst_company"], f"{comparison_data['worst_change_pp']:+.2f}%p · {comparison_data['worst_summary']}", "Watchlist")
 
 st.markdown("### Multi-Agent Monitoring")
-tab1, tab2, tab3, tab4 = st.tabs(["1. Orchestrator Brief", "2. Early Warning & Benchmark Agent", "3. PF · Corporate Loan · Collateral Agents", "4. Executive Reporting & Q&A Agent"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "1. Orchestrator Brief",
+    "2. Early Warning & Benchmark Agent",
+    "3. PF · Corporate Loan · Collateral Agents",
+    "4. Executive Reporting & Q&A Agent",
+])
 
 with tab1:
     top_a, top_b, top_c = st.columns(3)
     with top_a:
-        metric_card("메인 리스크 세그먼트", portfolio_summary['worst_segment'], f"연체율 변화 {portfolio_summary['worst_change_pp']:+.2f}%p", "Priority 1")
+        metric_card("메인 리스크 세그먼트", portfolio_summary["worst_segment"], f"연체율 변화 {portfolio_summary['worst_change_pp']:+.2f}%p", "Priority 1")
     with top_b:
-        metric_card("개선 확인 세그먼트", portfolio_summary['best_segment'], f"연체율 변화 {portfolio_summary['best_change_pp']:+.2f}%p", "Positive Signal")
+        metric_card("개선 확인 세그먼트", portfolio_summary["best_segment"], f"연체율 변화 {portfolio_summary['best_change_pp']:+.2f}%p", "Positive Signal")
     with top_c:
-        metric_card("최대 익스포저 세그먼트", portfolio_summary['largest_balance_segment'], f"현재 잔액 {portfolio_summary['largest_balance']}", "Exposure")
+        metric_card("최대 익스포저 세그먼트", portfolio_summary["largest_balance_segment"], f"현재 잔액 {portfolio_summary['largest_balance']}", "Exposure")
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="small-title">{selected_company} Orchestrator 핵심 메시지</div>', unsafe_allow_html=True)
@@ -221,18 +305,19 @@ with tab1:
     st.markdown(f"- 대응 시사점: **{portfolio_summary['worst_segment']}** 중심으로 차환 일정, 담보 재평가, 회수 우선순위를 재점검해야 합니다.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="small-title">멀티에이전트 실행 구조</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-subtitle">Orchestrator Agent가 아래 전문 Agent를 병렬 호출해 결과를 통합합니다.</div>', unsafe_allow_html=True)
-    st.markdown('- **Orchestrator Agent** · 전체 우선순위와 경영진 결론 통합')
-    st.markdown('- **Portfolio Intake Agent** · 포트폴리오 구조, PF 비중, 담보 비중 해석')
-    st.markdown('- **Early Warning Agent** · 연체율/민원/이상 이벤트 기반 경보 탐지')
-    st.markdown('- **PF Surveillance Agent** · PF 브릿지론, 본PF, 프로젝트금융 집중도 분석')
-    st.markdown('- **Corporate Loan Agent** · SME 운전자금, 담보부 시설자금, 중견기업 대출 분석')
-    st.markdown('- **Collateral & Recovery Agent** · 담보가치, 회수우선순위, 방어력 점검')
-    st.markdown('- **Benchmark Agent** · 그룹 비교, 개선/악화 벤치마크 추출')
-    st.markdown('- **Executive Reporting / Interactive Q&A Agent** · 보고서 및 심사위원 질의 대응')
-    st.markdown('</div>', unsafe_allow_html=True)
+    left, right = st.columns([1.05, 0.95])
+    with left:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">Agent 실행 순서 패널</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">각 Agent의 입력, 핵심 판단, 출력 결과를 발표용으로 1줄씩 정리했습니다.</div>', unsafe_allow_html=True)
+        st.dataframe(agent_trace_df, use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with right:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">실행 액션 아이템</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">오늘 / 이번 주 / 다음 달 단위로 실무 조치를 구체화했습니다.</div>', unsafe_allow_html=True)
+        st.dataframe(action_item_df, use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     left, right = st.columns([1.1, 0.9])
     with left:
@@ -267,14 +352,9 @@ with tab1:
             color_discrete_map={"High": "#ef4444", "Medium": "#f59e0b", "Low": "#10b981"},
         )
         fig.update_traces(textposition="outside")
-        fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="small-title">Benchmark Agent 개선/악화 비교</div>', unsafe_allow_html=True)
-    st.dataframe(comparison_data['trend_table'], use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
     left, right = st.columns([1, 1])
@@ -298,24 +378,42 @@ with tab2:
             "exposure_real_estate": "부동산 익스포저",
             "exposure_sme": "중소기업 익스포저",
         }
-        trend_fig = px.line(metrics_df.sort_values("date"), x="date", y=metric_choice, color="company_name", markers=True, title=f"월별 {metric_label_map[metric_choice]} 추이")
-        trend_fig.update_layout(height=410, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        trend_fig = px.line(
+            metrics_df.sort_values("date"),
+            x="date",
+            y=metric_choice,
+            color="company_name",
+            markers=True,
+            title=f"월별 {metric_label_map[metric_choice]} 추이",
+        )
+        trend_fig.update_layout(height=410, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(trend_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">Benchmark Agent 개선/악화 비교</div>', unsafe_allow_html=True)
+    st.dataframe(comparison_data["trend_table"], use_container_width=True, hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with tab3:
     top_left, top_right = st.columns([0.95, 1.05])
     with top_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="small-title">Driver Analysis Agent · {selected_company} 원인 요약 카드</div>', unsafe_allow_html=True)
-        render_reason_box("경영진 해석", selected_snapshot['headline'], positive=(selected_snapshot['mom_change_pp'] <= 0))
-        render_reason_box("연체율 하락/개선 이유", selected_snapshot['positive_driver_summary'], positive=True)
-        render_reason_box("연체율 상승/악화 이유", selected_snapshot['negative_driver_summary'], positive=False)
+        render_reason_box("경영진 해석", selected_snapshot["headline"], positive=(selected_snapshot["mom_change_pp"] <= 0))
+        render_reason_box("연체율 하락/개선 이유", selected_snapshot["positive_driver_summary"], positive=True)
+        render_reason_box("연체율 상승/악화 이유", selected_snapshot["negative_driver_summary"], positive=False)
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="small-title">Portfolio Intake Agent · {selected_company} 포트폴리오 핵심 요약</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="premium-note">PF 비중 <b>{portfolio_summary["pf_share"]}%</b> · 담보 기반 비중 <b>{portfolio_summary["secured_share"]}%</b><br>가장 큰 세그먼트는 <b>{portfolio_summary["largest_balance_segment"]}</b>이며 잔액은 <b>{portfolio_summary["largest_balance"]}</b>입니다.<br>가장 악화된 세그먼트는 <b>{portfolio_summary["worst_segment"]}</b>({portfolio_summary["worst_change_pp"]:+.2f}%p), 가장 개선된 세그먼트는 <b>{portfolio_summary["best_segment"]}</b>({portfolio_summary["best_change_pp"]:+.2f}%p)입니다.</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="premium-note">PF 비중 <b>{portfolio_summary["pf_share"]}%</b> · 담보 기반 비중 <b>{portfolio_summary["secured_share"]}%</b><br>'
+            f'가장 큰 세그먼트는 <b>{portfolio_summary["largest_balance_segment"]}</b>이며 잔액은 <b>{portfolio_summary["largest_balance"]}</b>입니다.<br>'
+            f'가장 악화된 세그먼트는 <b>{portfolio_summary["worst_segment"]}</b>({portfolio_summary["worst_change_pp"]:+.2f}%p), '
+            f'가장 개선된 세그먼트는 <b>{portfolio_summary["best_segment"]}</b>({portfolio_summary["best_change_pp"]:+.2f}%p)입니다.</div>',
+            unsafe_allow_html=True,
+        )
         st.markdown('</div>', unsafe_allow_html=True)
     with top_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -334,9 +432,9 @@ with tab3:
             y="연체율 변화(%p)",
             color="담보유형",
             text="연체율 변화(%p)",
-            title="PF Surveillance / Corporate Loan Agent 세그먼트 변화"
+            title="PF Surveillance / Corporate Loan Agent 세그먼트 변화",
         )
-        seg_fig.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        seg_fig.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(seg_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with mid_right:
@@ -350,11 +448,52 @@ with tab3:
             color="담보유형",
             hover_name="세그먼트",
             symbol="업종",
-            title="Collateral & Recovery Agent 기준 잔액 증가와 연체율 변화 동시 모니터링"
+            title="Collateral & Recovery Agent 기준 잔액 증가와 연체율 변화 동시 모니터링",
         )
-        scatter.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        scatter.update_layout(height=380, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(scatter, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">What-if 시뮬레이션</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-subtitle">PF 차환 부담, 담보 회수율 저하, SME 업황 악화가 동시에 발생했을 때 예상 연체율과 위험 단계를 시뮬레이션합니다.</div>', unsafe_allow_html=True)
+    slider_col1, slider_col2, slider_col3 = st.columns(3)
+    with slider_col1:
+        pf_stress = st.slider("PF 차환 부담 가정(%p)", min_value=0.0, max_value=1.2, value=0.3, step=0.05)
+    with slider_col2:
+        collateral_stress = st.slider("담보 회수율 저하 가정(%p)", min_value=0.0, max_value=1.0, value=0.2, step=0.05)
+    with slider_col3:
+        sme_stress = st.slider("SME 업황 악화 가정(%p)", min_value=0.0, max_value=1.0, value=0.15, step=0.05)
+
+    scenario_result = simulate_what_if_scenario(
+        selected_company,
+        risk_df,
+        segment_df,
+        pf_refinancing_shock_pp=pf_stress,
+        collateral_recovery_drop_pp=collateral_stress,
+        sme_slowdown_shock_pp=sme_stress,
+    )
+
+    scenario_metrics = st.columns(4)
+    with scenario_metrics[0]:
+        metric_card("현재 연체율", f"{scenario_result['base_rate']:.2f}%", "기준 시점", "Baseline")
+    with scenario_metrics[1]:
+        metric_card("Projected 연체율", f"{scenario_result['projected_rate']:.2f}%", "스트레스 반영 후", "Scenario")
+    with scenario_metrics[2]:
+        metric_card("추가 충격", f"{scenario_result['stress_delta']:+.2f}%p", scenario_result["impact_summary"], "Shock")
+    with scenario_metrics[3]:
+        metric_card("Projected 위험 단계", scenario_result["projected_risk_level"], f"예상 리스크 점수 {scenario_result['projected_risk_score']}", "Risk Level")
+
+    scenario_df = pd.DataFrame(
+        {
+            "구분": ["기준 연체율", "Projected 연체율"],
+            "연체율": [scenario_result["base_rate"], scenario_result["projected_rate"]],
+        }
+    )
+    scenario_fig = px.bar(scenario_df, x="구분", y="연체율", color="구분", text="연체율", title="What-if 결과 비교")
+    scenario_fig.update_layout(height=320, margin=dict(l=0, r=0, t=44, b=0), showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(scenario_fig, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with tab4:
     left, right = st.columns([1.05, 0.95])
@@ -396,6 +535,12 @@ with tab4:
         st.markdown("- PF Surveillance Agent는 PF / 프로젝트금융의 만기 구조와 차환 부담을 별도 관리")
         st.markdown("- Corporate Loan Agent는 기업 운전자금대출의 업종 편중과 차주군 질 변화를 동시 점검")
         st.markdown("- Collateral & Recovery Agent는 담보가치 재평가와 회수정책의 실효성을 함께 추적")
+        st.markdown("- Executive Reporting Agent는 오늘/이번 주/다음 달 액션 아이템까지 경영진 언어로 통합")
         st.markdown('</div>', unsafe_allow_html=True)
 
-st.caption("멀티에이전트 구조/리네임 반영 완료 · 메인 스토리 JB우리캐피탈 · 심사위원용 문구/색상/데모 흐름/GitHub 반영 준비 완료")
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">실행 우선순위 요약</div>', unsafe_allow_html=True)
+        st.dataframe(action_item_df.head(5), use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+st.caption("멀티에이전트 구조/액션 아이템/데모 모드/What-if 시뮬레이션/배포 안정성 보강 반영 완료")
