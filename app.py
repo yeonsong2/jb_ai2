@@ -1,318 +1,59 @@
 from pathlib import Path
-import sys
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from constants import (
+    APP_ICON,
+    APP_TITLE,
+    BASE_DIR,
+    DATA_DIR,
+    DEMO_MODES,
+    DRIVERS_PATH,
+    FOCUS_MODE_TO_DEMO,
+    LOGS_PATH,
+    METRICS_PATH,
+    REQUIRED_COLUMNS,
+    SEGMENT_PATH,
+)
+from data_loader import build_dashboard_data, load_dataframes, validate_required_columns
+from healthcheck import (
+    ensure_dataframe_columns,
+    fallback_comparison_data,
+    fallback_portfolio_summary,
+    fallback_snapshot,
+    render_deploy_status_banner,
+    render_healthcheck_summary,
+    stop_with_deploy_diagnostics,
+)
+from pdf_export import build_company_report_pdf, build_group_brief_pdf
 from risk_engine import (
     answer_question,
-    calculate_company_risk,
-    detect_alerts,
     generate_delinquency_reason_report,
     generate_executive_report,
     get_action_item_table,
     get_agent_execution_table,
-    get_company_comparison,
     get_delinquency_snapshot,
     get_enterprise_portfolio_summary,
     get_segment_detail_table,
     simulate_what_if_scenario,
 )
+from ui_components import (
+    build_risk_heatmap_figure,
+    inject_custom_css,
+    metric_card,
+    render_alert_card,
+    render_reason_box,
+)
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-METRICS_PATH = DATA_DIR / "sample_risk_metrics.csv"
-LOGS_PATH = DATA_DIR / "sample_risk_logs.csv"
-DRIVERS_PATH = DATA_DIR / "sample_delinquency_drivers.csv"
-SEGMENT_PATH = DATA_DIR / "sample_segment_metrics.csv"
-
-REQUIRED_COLUMNS = {
-    "metrics": [
-        "date",
-        "company_name",
-        "company_type",
-        "delinquency_rate",
-        "complaints",
-        "abnormal_events",
-        "exposure_real_estate",
-        "exposure_sme",
-    ],
-    "logs": ["date", "company_name", "issue_type", "severity", "description"],
-    "drivers": ["date", "company_name", "driver_name", "direction", "contribution_bps", "description"],
-    "segments": ["date", "company_name", "segment_name", "balance", "delinquency_rate", "customer_count"],
-}
-
-DEMO_MODES = {
-    "전체 흐름": "Orchestrator Agent가 전체 그룹을 스캔하고 핵심 Watchlist를 지정하는 기본 시연 모드입니다.",
-    "Step 1. 그룹 스캔": "그룹 기준 최고 위험 계열사, 경보 건수, 비교 랭킹을 먼저 보여주는 심사위원용 시작 장면입니다.",
-    "Step 2. PF/기업대출 분석": "PF Surveillance Agent와 Corporate Loan Agent가 세그먼트 악화 원인을 drill-down 하는 장면입니다.",
-    "Step 3. 담보/회수 우선순위": "Collateral & Recovery Agent가 담보 재평가와 회수정책 우선순위를 제시하는 장면입니다.",
-    "Step 4. 경영진 보고": "Executive Reporting Agent가 보고서와 질의응답으로 마무리하는 장면입니다.",
-}
-
-FOCUS_MODE_TO_DEMO = {
-    "그룹 스캔": "Step 1. 그룹 스캔",
-    "PF 집중 점검": "Step 2. PF/기업대출 분석",
-    "기업대출 점검": "Step 2. PF/기업대출 분석",
-    "담보·회수 점검": "Step 3. 담보/회수 우선순위",
-    "경영진 보고": "Step 4. 경영진 보고",
-}
-
-st.set_page_config(page_title="JB Insight CRO Multi-Agent", page_icon="🤖", layout="wide")
-
-CUSTOM_CSS = """
-<style>
-    .stApp {background: linear-gradient(180deg, #f7f9fc 0%, #edf2f7 48%, #f8fafc 100%);}
-    .block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1480px;}
-    .hero-wrap {background: radial-gradient(circle at top left, rgba(148,163,184,0.18), transparent 24%), linear-gradient(135deg, #0f172a 0%, #15345b 52%, #1e3a5f 100%); border-radius: 28px; padding: 34px 34px 28px 34px; color: white; box-shadow: 0 18px 50px rgba(15,23,42,0.18); margin-bottom: 18px; border: 1px solid rgba(255,255,255,0.06);}
-    .hero-kicker {font-size: 0.82rem; letter-spacing: .12em; text-transform: uppercase; color: #bfdbfe; margin-bottom: 8px; font-weight: 700;}
-    .hero-title {font-size: 2.15rem; font-weight: 900; margin-bottom: 10px;}
-    .hero-subtitle {font-size: 1rem; opacity: 0.96; line-height: 1.72; max-width: 1080px;}
-    .info-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;}
-    .info-chip {background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18); padding: 8px 12px; border-radius: 999px; font-size: 0.9rem; backdrop-filter: blur(8px);}
-    .metric-card {background: rgba(255,255,255,0.92); border:1px solid rgba(148,163,184,0.20); border-radius:20px; padding:20px 22px; box-shadow:0 12px 32px rgba(15,23,42,0.08); min-height: 138px;}
-    .metric-label {color:#64748b; font-size:0.88rem; margin-bottom:6px; font-weight:600;}
-    .metric-value {font-size:1.9rem; font-weight:900; color:#0f172a; line-height:1.15;}
-    .metric-caption {font-size:0.87rem; color:#475569; margin-top:8px; line-height: 1.55;}
-    .metric-badge {display:inline-block; margin-top:10px; background:#eff6ff; color:#1d4ed8; font-size:0.76rem; padding:5px 9px; border-radius:999px; font-weight:700;}
-    .section-card {background:rgba(255,255,255,0.94); border:1px solid rgba(148,163,184,0.22); border-radius:22px; padding:18px 18px 14px 18px; box-shadow:0 10px 28px rgba(15,23,42,0.06); margin-bottom:16px;}
-    .small-title {font-size:1.03rem; font-weight:800; color:#0f172a; margin-bottom:10px;}
-    .section-subtitle {font-size:0.85rem; color:#64748b; margin-bottom:14px;}
-    .alert-high,.alert-medium,.alert-low {border-radius:16px; padding:14px 16px; margin-bottom:10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7);}
-    .alert-high {border-left:6px solid #ef4444; background:linear-gradient(90deg, #fff5f5, #fffafb);}
-    .alert-medium {border-left:6px solid #f59e0b; background:linear-gradient(90deg, #fffaf0, #fffdf7);}
-    .alert-low {border-left:6px solid #10b981; background:linear-gradient(90deg, #f0fdf4, #f7fffb);}
-    .alert-title {font-weight:800; color:#0f172a; margin-bottom:4px;}
-    .alert-detail {color:#334155; font-size:0.92rem; line-height:1.56;}
-    .summary-good {border-left:6px solid #10b981; background:#f0fdf4; border-radius:16px; padding:14px 16px; margin-bottom:12px;}
-    .summary-bad {border-left:6px solid #ef4444; background:#fff7f7; border-radius:16px; padding:14px 16px; margin-bottom:12px;}
-    .premium-note {background: linear-gradient(135deg, #eff6ff, #f8fafc); border:1px solid #dbeafe; border-radius:18px; padding:16px 18px; color:#1e3a8a;}
-    .report-box textarea {font-size:0.95rem !important; line-height:1.6 !important;}
-    .demo-banner {background: linear-gradient(90deg, #dbeafe, #eff6ff); border:1px solid #bfdbfe; border-radius:16px; padding:14px 18px; margin-bottom:18px; color:#1e3a8a;}
-    .status-banner {background: linear-gradient(90deg, #ecfeff, #f8fafc); border:1px solid #bae6fd; border-radius:16px; padding:14px 18px; margin-bottom:18px; color:#0f172a;}
-    .status-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;}
-    .status-chip {background:#ffffff; border:1px solid #dbeafe; padding:7px 10px; border-radius:999px; font-size:0.84rem; color:#0f172a;}
-    .sidebar-card {background:rgba(255,255,255,0.78); border:1px solid rgba(148,163,184,0.18); border-radius:18px; padding:14px 14px 10px 14px; margin:10px 0 14px 0;}
-    .sidebar-kpi {font-size:0.83rem; color:#475569; line-height:1.65;}
-    .sidebar-kpi b {color:#0f172a;}
-    div[data-testid="stTabs"] button[role="tab"] {font-weight: 700; border-radius: 999px; padding: 10px 18px;}
-    div[data-testid="stTabs"] button[aria-selected="true"] {background: linear-gradient(90deg, #dbeafe, #eff6ff); color: #1d4ed8;}
-</style>
-"""
-
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout="wide")
+inject_custom_css()
 
 
 @st.cache_data
 def load_data():
-    metrics = pd.read_csv(METRICS_PATH, parse_dates=["date"])
-    logs = pd.read_csv(LOGS_PATH, parse_dates=["date"])
-    drivers = pd.read_csv(DRIVERS_PATH, parse_dates=["date"])
-    segments = pd.read_csv(SEGMENT_PATH, parse_dates=["date"])
-    return metrics, logs, drivers, segments
-
-
-def validate_required_columns(name: str, df: pd.DataFrame, required_columns: list[str]):
-    return [col for col in required_columns if col not in df.columns]
-
-
-@st.cache_data
-def build_dashboard_data(metrics_df: pd.DataFrame, logs_df: pd.DataFrame, drivers_df: pd.DataFrame, segment_df: pd.DataFrame):
-    risk = calculate_company_risk(metrics_df, logs_df, drivers_df)
-    alerts = detect_alerts(metrics_df, logs_df)
-    comparison = get_company_comparison(risk)
-    return risk, alerts, comparison
-
-
-def stop_with_deploy_diagnostics(message: str, diagnostics=None):
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.error(message)
-    if diagnostics:
-        with st.expander("배포 진단 정보", expanded=True):
-            st.json(diagnostics)
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.stop()
-
-
-def ensure_dataframe_columns(df, defaults: dict):
-    base = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
-    for column, default in defaults.items():
-        if column not in base.columns:
-            base[column] = default
-    return base
-
-
-def fallback_snapshot(company_name: str):
-    return {
-        "current_rate": 0.0,
-        "previous_rate": 0.0,
-        "mom_change_pp": 0.0,
-        "mom_change_pct": 0.0,
-        "trailing_3m_avg": 0.0,
-        "vs_3m_avg_pp": 0.0,
-        "headline": f"{company_name} 기준 데이터가 충분하지 않아 기본값으로 표시 중입니다.",
-        "positive_driver_summary": "개선 요인 데이터 없음",
-        "negative_driver_summary": "악화 요인 데이터 없음",
-    }
-
-
-def fallback_portfolio_summary():
-    return {
-        "pf_share": 0.0,
-        "secured_share": 0.0,
-        "worst_segment": "데이터 없음",
-        "worst_change_pp": 0.0,
-        "best_segment": "데이터 없음",
-        "best_change_pp": 0.0,
-        "largest_balance_segment": "데이터 없음",
-        "largest_balance": 0.0,
-    }
-
-
-def fallback_comparison_data():
-    return {
-        "best_company": "N/A",
-        "best_change_pp": 0.0,
-        "best_summary": "비교 데이터 없음",
-        "worst_company": "N/A",
-        "worst_change_pp": 0.0,
-        "worst_summary": "비교 데이터 없음",
-        "trend_table": pd.DataFrame(columns=["계열사", "전월 대비 변화(%p)", "3개월 평균 대비(%p)", "현재 연체율"]),
-    }
-
-
-def safe_generate_reason_report(metrics_df, drivers_df, segment_df, company_name: str):
-    try:
-        return generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, company_name)
-    except Exception as exc:
-        return f"[안정화 모드] Driver Analysis Agent 보고서 생성 중 예외가 발생했습니다: {exc}"
-
-
-def safe_generate_executive_report(risk_df, alerts_df, latest_month: str):
-    try:
-        return generate_executive_report(risk_df, alerts_df, latest_month)
-    except Exception as exc:
-        return f"[안정화 모드] Orchestrator Agent 그룹 브리프 생성 중 예외가 발생했습니다: {exc}"
-
-
-def safe_answer_question(question: str, risk_df, alerts_df, metrics_df):
-    try:
-        return answer_question(question, risk_df, alerts_df, metrics_df)
-    except Exception as exc:
-        return f"[안정화 모드] Interactive Q&A Agent 응답 생성 중 예외가 발생했습니다: {exc}"
-
-
-def safe_simulate_what_if(selected_company: str, risk_df, segment_df, pf_stress: float, collateral_stress: float, sme_stress: float):
-    try:
-        return simulate_what_if_scenario(
-            selected_company,
-            risk_df,
-            segment_df,
-            pf_refinancing_shock_pp=pf_stress,
-            collateral_recovery_drop_pp=collateral_stress,
-            sme_slowdown_shock_pp=sme_stress,
-        )
-    except Exception as exc:
-        base_rate = 0.0
-        if isinstance(risk_df, pd.DataFrame) and not risk_df.empty and "company_name" in risk_df.columns and "latest_delinquency_rate" in risk_df.columns:
-            matched = risk_df[risk_df["company_name"] == selected_company]
-            if not matched.empty:
-                base_rate = float(matched.iloc[0]["latest_delinquency_rate"])
-        stress_delta = round(float(pf_stress) + float(collateral_stress) + float(sme_stress), 2)
-        return {
-            "base_rate": base_rate,
-            "projected_rate": round(base_rate + stress_delta, 2),
-            "stress_delta": stress_delta,
-            "projected_risk_score": 0,
-            "projected_risk_level": "Unknown",
-            "impact_summary": f"안정화 모드 fallback 적용 · {exc}",
-        }
-
-
-def render_deploy_status_banner(metrics_df, risk_df, alerts_df, latest_month: str):
-    metrics_rows = len(metrics_df) if isinstance(metrics_df, pd.DataFrame) else 0
-    risk_rows = len(risk_df) if isinstance(risk_df, pd.DataFrame) else 0
-    alerts_rows = len(alerts_df) if isinstance(alerts_df, pd.DataFrame) else 0
-    expected_python = "3.11"
-    runtime_python = f"{sys.version_info.major}.{sys.version_info.minor}"
-    driver = "정상" if metrics_rows > 0 and risk_rows > 0 else "점검 필요"
-    banner = f"""
-    <div class="status-banner">
-        <b>배포 상태 배너</b><br>
-        현재 화면은 배포 진단 정보를 함께 노출합니다. 데이터 적재, 리스크 계산, 핵심 테이블 생성 여부를 첫 화면에서 바로 확인할 수 있습니다.
-        <div class="status-chip-row">
-            <div class="status-chip">기준 월 · {latest_month}</div>
-            <div class="status-chip">metrics rows · {metrics_rows}</div>
-            <div class="status-chip">risk rows · {risk_rows}</div>
-            <div class="status-chip">alerts rows · {alerts_rows}</div>
-            <div class="status-chip">expected python · {expected_python}</div>
-            <div class="status-chip">runtime python · {runtime_python}</div>
-            <div class="status-chip">healthcheck · {driver}</div>
-        </div>
-    </div>
-    """
-    st.markdown(banner, unsafe_allow_html=True)
-
-
-def render_healthcheck_expander(metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df):
-    st.markdown("#### 헬스체크 · 배포 진단 요약")
-    health_df = pd.DataFrame(
-        [
-            {"항목": "metrics_df", "rows": len(metrics_df), "columns": len(metrics_df.columns)},
-            {"항목": "logs_df", "rows": len(logs_df), "columns": len(logs_df.columns)},
-            {"항목": "drivers_df", "rows": len(drivers_df), "columns": len(drivers_df.columns)},
-            {"항목": "segment_df", "rows": len(segment_df), "columns": len(segment_df.columns)},
-            {"항목": "risk_df", "rows": len(risk_df), "columns": len(risk_df.columns)},
-            {"항목": "alerts_df", "rows": len(alerts_df), "columns": len(alerts_df.columns)},
-        ]
-    )
-    st.dataframe(health_df, use_container_width=True, hide_index=True)
-    st.caption("클라우드 배포 시 Python 3.11 고정을 권장합니다.")
-
-
-def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
-    badge_html = f'<div class="metric-badge">{badge}</div>' if badge else ""
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <div class="metric-label">{label}</div>
-            <div class="metric-value">{value}</div>
-            <div class="metric-caption">{caption}</div>
-            {badge_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-
-def render_alert_card(row):
-    severity_class = {"High": "alert-high", "Medium": "alert-medium", "Low": "alert-low"}.get(row["severity"], "alert-low")
-    st.markdown(
-        f"""
-        <div class="{severity_class}">
-            <div class="alert-title">[{row['severity']}] {row['company_name']} · {row['alert_type']}</div>
-            <div class="alert-detail">{row['detail']}</div>
-            <div class="alert-detail" style="margin-top:6px;"><b>권고 조치</b> · {row['recommended_action']}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-
-def render_reason_box(title: str, content: str, positive: bool = True):
-    css_class = "summary-good" if positive else "summary-bad"
-    st.markdown(
-        f"""
-        <div class="{css_class}">
-            <div class="alert-title">{title}</div>
-            <div class="alert-detail">{content}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    return load_dataframes(METRICS_PATH, LOGS_PATH, DRIVERS_PATH, SEGMENT_PATH)
 
 
 startup_diagnostics = {"base_dir": str(BASE_DIR), "data_dir": str(DATA_DIR)}
@@ -531,7 +272,7 @@ st.markdown(
 
 with st.expander("배포 상태 / 헬스체크", expanded=False):
     render_deploy_status_banner(metrics_df, risk_df, alerts_df, latest_month)
-    render_healthcheck_expander(metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df)
+    render_healthcheck_summary(metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df)
 
 st.markdown(
     f"""
@@ -684,6 +425,16 @@ with tab2:
     st.dataframe(comparison_data["trend_table"], use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">리스크 히트맵</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-subtitle">계열사별 리스크 축별 점수를 한 화면에서 비교합니다.</div>', unsafe_allow_html=True)
+    heatmap_fig = build_risk_heatmap_figure(risk_df)
+    if heatmap_fig is None:
+        st.info("리스크 히트맵을 생성할 데이터가 없습니다.")
+    else:
+        st.plotly_chart(heatmap_fig, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 with tab3:
     top_left, top_right = st.columns([0.95, 1.05])
     with top_left:
@@ -813,6 +564,8 @@ with tab4:
             st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
             st.session_state["reason_report_company"] = selected_company
         st.text_area("임원 보고서 출력", st.session_state["reason_report"], height=460)
+        company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_df)
+        st.download_button("임원 보고서 PDF 다운로드", data=company_pdf, file_name=f"{selected_company}_{latest_month}_company_report.pdf", mime="application/pdf", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-card report-box">', unsafe_allow_html=True)
@@ -822,6 +575,8 @@ with tab4:
         if "executive_report" not in st.session_state:
             st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
         st.text_area("그룹 브리프 출력", st.session_state["executive_report"], height=300)
+        group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
+        st.download_button("그룹 브리프 PDF 다운로드", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)

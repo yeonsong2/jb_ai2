@@ -108,6 +108,13 @@ JB금융그룹 Fin:AI Challenge 제출용 **기업금융 리스크 관제형 멀
 - `.python-version = 3.11` 고정
 - Streamlit Cloud 재배포 체크리스트 문서화
 
+### 4.6 추가된 실전형 기능
+- 경영진/그룹 브리프 PDF 다운로드
+- 계열사별 리스크 히트맵
+- 설정 파일(`config/risk_thresholds.json`) 분리
+- 데이터 사전(`docs/data_dictionary.md`) 추가
+- 단위 테스트 및 GitHub Actions CI 추가
+
 ---
 
 ## 5. JB우리캐피탈 기준 샘플 데이터 포인트
@@ -146,6 +153,22 @@ jb_insight_cro/
 ├── requirements.txt
 ├── README.md
 ├── .python-version
+├── constants.py
+├── app_config.py
+├── data_loader.py
+├── healthcheck.py
+├── ui_components.py
+├── pdf_export.py
+├── .github/
+│   └── workflows/ci.yml
+├── config/
+│   └── risk_thresholds.json
+├── docs/
+│   └── data_dictionary.md
+├── tests/
+│   ├── test_config_and_loader.py
+│   ├── test_pdf_export.py
+│   └── test_risk_engine.py
 ├── .streamlit/
 │   └── config.toml
 └── data/

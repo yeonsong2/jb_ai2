@@ -1,13 +1,11 @@
 import pandas as pd
 
+from app_config import load_risk_config
 
-SEVERITY_WEIGHTS = {"High": 18, "Medium": 10, "Low": 4}
-TYPE_WEIGHTS = {
-    "Bank": 1.0,
-    "Capital": 1.08,
-    "Overseas Bank": 0.95,
-    "Asset Management": 0.9,
-}
+RISK_CONFIG = load_risk_config()
+SEVERITY_WEIGHTS = RISK_CONFIG["severity_weights"]
+TYPE_WEIGHTS = RISK_CONFIG["type_weights"]
+RISK_LEVEL_THRESHOLDS = RISK_CONFIG["risk_level_thresholds"]
 
 
 def _safe_pct_change(current, previous):
@@ -127,9 +125,9 @@ def calculate_company_risk(
         base_score = sum(component_scores.values())
         weighted_score = round(min((base_score + log_risk_score) * type_weight, 100), 1)
 
-        if weighted_score >= 75:
+        if weighted_score >= RISK_LEVEL_THRESHOLDS.get("High", 75):
             risk_level = "High"
-        elif weighted_score >= 45:
+        elif weighted_score >= RISK_LEVEL_THRESHOLDS.get("Medium", 45):
             risk_level = "Medium"
         else:
             risk_level = "Low"
