@@ -256,19 +256,19 @@ def render_deploy_status_banner(metrics_df, risk_df, alerts_df, latest_month: st
 
 
 def render_healthcheck_expander(metrics_df, logs_df, drivers_df, segment_df, risk_df, alerts_df):
-    with st.expander("헬스체크 · 배포 진단 요약", expanded=False):
-        health_df = pd.DataFrame(
-            [
-                {"항목": "metrics_df", "rows": len(metrics_df), "columns": len(metrics_df.columns)},
-                {"항목": "logs_df", "rows": len(logs_df), "columns": len(logs_df.columns)},
-                {"항목": "drivers_df", "rows": len(drivers_df), "columns": len(drivers_df.columns)},
-                {"항목": "segment_df", "rows": len(segment_df), "columns": len(segment_df.columns)},
-                {"항목": "risk_df", "rows": len(risk_df), "columns": len(risk_df.columns)},
-                {"항목": "alerts_df", "rows": len(alerts_df), "columns": len(alerts_df.columns)},
-            ]
-        )
-        st.dataframe(health_df, use_container_width=True, hide_index=True)
-        st.caption("클라우드 배포 시 Python 3.11 고정을 권장합니다.")
+    st.markdown("#### 헬스체크 · 배포 진단 요약")
+    health_df = pd.DataFrame(
+        [
+            {"항목": "metrics_df", "rows": len(metrics_df), "columns": len(metrics_df.columns)},
+            {"항목": "logs_df", "rows": len(logs_df), "columns": len(logs_df.columns)},
+            {"항목": "drivers_df", "rows": len(drivers_df), "columns": len(drivers_df.columns)},
+            {"항목": "segment_df", "rows": len(segment_df), "columns": len(segment_df.columns)},
+            {"항목": "risk_df", "rows": len(risk_df), "columns": len(risk_df.columns)},
+            {"항목": "alerts_df", "rows": len(alerts_df), "columns": len(alerts_df.columns)},
+        ]
+    )
+    st.dataframe(health_df, use_container_width=True, hide_index=True)
+    st.caption("클라우드 배포 시 Python 3.11 고정을 권장합니다.")
 
 
 def metric_card(label: str, value: str, caption: str = "", badge: str = ""):
