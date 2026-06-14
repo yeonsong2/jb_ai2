@@ -202,7 +202,6 @@ FOCUS_KEYWORDS = {
 }
 
 FOCUS_DEFAULT_METRIC = {
-    "그룹 스캔": "delinquency_rate",
     "PF 집중 점검": "exposure_real_estate",
     "기업대출 점검": "exposure_sme",
     "담보·회수 점검": "exposure_real_estate",
@@ -211,7 +210,6 @@ FOCUS_DEFAULT_METRIC = {
 
 
 FOCUS_TAB_LABELS = {
-    "그룹 스캔": ["1. 그룹 스캔", "2. 조기경보 · 계열 비교", "3. 핵심 세그먼트", "4. 보고 · Q&A"],
     "PF 집중 점검": ["1. PF 브리프", "2. PF 경보 · 비교", "3. PF 세부진단", "4. PF 보고 · Q&A"],
     "기업대출 점검": ["1. 기업대출 브리프", "2. 기업대출 경보 · 비교", "3. 기업대출 세부진단", "4. 기업대출 보고 · Q&A"],
     "담보·회수 점검": ["1. 담보·회수 브리프", "2. 담보·회수 경보 · 비교", "3. 담보·회수 세부진단", "4. 담보·회수 보고 · Q&A"],
@@ -219,7 +217,6 @@ FOCUS_TAB_LABELS = {
 }
 
 FOCUS_BANNER_MESSAGES = {
-    "그룹 스캔": "그룹 전체 비교와 High·Medium 경보 중심으로 우선 점검 대상을 빠르게 식별하는 모드입니다.",
     "PF 집중 점검": "PF·브릿지론·차환 리스크 관련 데이터만 우선 재구성해 세부 진단과 시나리오를 강조하는 모드입니다.",
     "기업대출 점검": "기업대출·SME·운전자금 관련 데이터만 우선 재구성해 차주군/업종 리스크를 점검하는 모드입니다.",
     "담보·회수 점검": "담보 재평가·회수 지연·회수정책 관련 데이터만 우선 재구성해 실행 과제를 확인하는 모드입니다.",
@@ -227,12 +224,6 @@ FOCUS_BANNER_MESSAGES = {
 }
 
 FOCUS_QUESTION_OPTIONS = {
-    "그룹 스캔": [
-        "왜 {selected_company}이 최우선 점검 대상인가",
-        "그룹 내 비교 가능한 개선 사례는 어디인가",
-        "이번 달 즉시 실행해야 할 조치는 무엇인가",
-        "가장 먼저 점검해야 할 경보는 무엇인가",
-    ],
     "PF 집중 점검": [
         "PF 차환 리스크의 핵심 근거는 무엇인가",
         "브릿지론과 본PF 중 어디를 먼저 점검해야 하는가",
@@ -295,7 +286,7 @@ def _get_focus_view(focus_mode, filtered_alerts, selected_driver_rows, segment_t
     focus_ranking_table = ranking_table.copy() if isinstance(ranking_table, pd.DataFrame) else pd.DataFrame()
 
     keywords = FOCUS_KEYWORDS.get(focus_mode, [])
-    if focus_mode != "그룹 스캔":
+    if focus_mode != "경영진 보고":
         filtered = _focus_keyword_match(focus_alerts, ["alert_type", "detail", "recommended_action"], keywords)
         if not filtered.empty:
             focus_alerts = filtered
@@ -316,10 +307,7 @@ def _get_focus_view(focus_mode, filtered_alerts, selected_driver_rows, segment_t
         display_cols = [col for col in ["세그먼트", "현재 연체율", "연체율 변화(%p)", "위험도", "점검 필요"] if col in focus_segment_table_display.columns]
         focus_segment_table_display = focus_segment_table_display[display_cols].head(7)
 
-    if focus_mode == "그룹 스캔":
-        focus_card = {"label": "즉시 점검 경보", "value": f"{len(focus_alerts)}건", "caption": "High·Medium 경보 기준", "badge": "Alert"}
-        stress_defaults = {"pf": 0.30, "collateral": 0.20, "sme": 0.15}
-    elif focus_mode == "PF 집중 점검":
+    if focus_mode == "PF 집중 점검":
         focus_card = {"label": "PF 관련 신호", "value": f"{len(focus_driver_rows)}건", "caption": "PF·브릿지론·차환 관련", "badge": "PF"}
         stress_defaults = {"pf": 0.45, "collateral": 0.15, "sme": 0.10}
     elif focus_mode == "기업대출 점검":
@@ -474,7 +462,6 @@ def _get_watchlist_view_label(focus_mode, integrated_view):
         "PF 집중 점검": "PF 전용 보기",
         "기업대출 점검": "기업대출 전용 보기",
         "담보·회수 점검": "담보·회수 전용 보기",
-        "그룹 스캔": "그룹 스캔 보기",
     }
     return label_map.get(focus_mode, f"{focus_mode} 전용 보기")
 
@@ -507,8 +494,6 @@ def _filter_borrower_watchlist_by_focus(watchlist_df, focus_mode, integrated_vie
         filtered = watchlist_df[corporate_mask].copy()
     elif focus_mode == "담보·회수 점검":
         filtered = watchlist_df[collateral_mask].copy()
-    elif focus_mode == "그룹 스캔":
-        filtered = watchlist_df.copy()
     else:
         filtered = watchlist_df.copy()
 
@@ -774,11 +759,6 @@ def _build_rule_based_scenario_note(llm_context, scenario_result):
             "오늘 · LTV 상위 건과 회수 단계 지연 건을 우선 재평가 대상으로 확정합니다.",
             "이번 주 · 담보 커버리지 부족 차주와 정상화 가능 차주를 분리해 회수 우선순위를 재정렬합니다.",
             "이번 달 · 재평가 결과를 반영해 매각·재약정·법적 조치 후보를 경영진 안건으로 정리합니다.",
-        ],
-        "그룹 스캔": [
-            "오늘 · 최우선 점검 계열사와 동반 악화 계열사를 병렬로 점검합니다.",
-            "이번 주 · 그룹 공통 취약 신호와 계열사별 개별 원인을 나눠서 우선순위를 재정렬합니다.",
-            "이번 달 · 그룹 차원의 차환·담보·회수 실행 패키지를 통합 보고합니다.",
         ],
         "경영진 보고": [
             "오늘 · 취약 차주 리스트와 만기 도래 건을 우선 재점검합니다.",
@@ -1093,7 +1073,7 @@ if not company_options:
 preferred_company = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
 if "selected_company" not in st.session_state or st.session_state.get("selected_company") not in company_options:
     st.session_state["selected_company"] = preferred_company
-if "focus_mode" not in st.session_state:
+if "focus_mode" not in st.session_state or st.session_state.get("focus_mode") == "그룹 스캔":
     st.session_state["focus_mode"] = "경영진 보고"
 if "demo_mode" not in st.session_state:
     st.session_state["demo_mode"] = FOCUS_MODE_TO_DEMO.get(st.session_state["focus_mode"], "전체 흐름")
@@ -1114,7 +1094,7 @@ with st.sidebar:
 
     focus_mode = st.radio(
         "관제 초점",
-        ["그룹 스캔", "PF 집중 점검", "기업대출 점검", "담보·회수 점검", "경영진 보고"],
+        ["PF 집중 점검", "기업대출 점검", "담보·회수 점검", "경영진 보고"],
         key="focus_mode",
     )
     st.session_state["demo_mode"] = FOCUS_MODE_TO_DEMO.get(focus_mode, "전체 흐름")
@@ -1454,7 +1434,6 @@ with row1[3]:
     metric_card("3M 평균 대비", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p", f"전월 대비 {selected_snapshot['mom_change_pp']:+.2f}%p", "Trend")
 
 FOCUS_TAB_GUIDE = {
-    "그룹 스캔":     ("2. 조기경보 · 계열 비교",   "그룹 전체 경보 현황과 계열사 비교 순위를 확인합니다."),
     "PF 집중 점검":  ("3. 포트폴리오 세부진단",     "PF 브릿지론·본PF 세그먼트 악화 원인을 집중 점검합니다."),
     "기업대출 점검": ("3. 포트폴리오 세부진단",     "중소기업 운전자금·담보대출 세그먼트를 먼저 확인합니다."),
     "담보·회수 점검":("3. 포트폴리오 세부진단",     "담보 가치와 회수 우선순위 포지셔닝 차트를 점검합니다."),
