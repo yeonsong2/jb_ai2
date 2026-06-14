@@ -1,8 +1,8 @@
 import unittest
 
 from app_config import load_risk_config
-from constants import REQUIRED_COLUMNS
-from data_loader import load_dataframes, validate_required_columns
+from constants import PUBLIC_ANCHOR_PATH, REQUIRED_COLUMNS
+from data_loader import load_dataframes, load_public_anchor_metrics, validate_required_columns
 
 
 class ConfigAndLoaderTest(unittest.TestCase):
@@ -24,6 +24,12 @@ class ConfigAndLoaderTest(unittest.TestCase):
         self.assertEqual(validate_required_columns("logs", logs, REQUIRED_COLUMNS["logs"]), [])
         self.assertEqual(validate_required_columns("drivers", drivers, REQUIRED_COLUMNS["drivers"]), [])
         self.assertEqual(validate_required_columns("segments", segments, REQUIRED_COLUMNS["segments"]), [])
+
+    def test_public_anchor_metrics_file_loads(self):
+        anchors = load_public_anchor_metrics(str(PUBLIC_ANCHOR_PATH))
+        self.assertGreaterEqual(len(anchors), 4)
+        self.assertIn("metric_name", anchors.columns)
+        self.assertIn("anchor_value", anchors.columns)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+source_system,metric_name,observation_period,anchor_value,unit,source_url,usage_note
+한국은행,한국은행 기준금리,2025-05-29,2.50,%,https://www.bok.or.kr/portal/singl/baseRate/list.do?dataSeCd=01&menuNo=200643,거시 금리 레벨 앵커
+ECOS,한국은행 기준금리,20260612,2.50,%,https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100,데모 기준월 금리 앵커
+ECOS,KORIBOR(3개월),20260612,2.92,%,https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100,단기 조달금리 앵커
+ECOS,"회사채수익률(3년,AA-)",20260612,4.433,%,https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100,여전사 조달환경 앵커
+ECOS,가계대출연체율,202603,0.4,%,https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100,신용환경 레퍼런스 앵커

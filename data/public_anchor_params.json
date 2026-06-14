@@ -1,0 +1,60 @@
+{
+  "version": "demo-public-anchor-v1",
+  "source_csv": "data/public_anchor_metrics.csv",
+  "metric_count": 5,
+  "metrics": {
+    "한국은행 기준금리": [
+      {
+        "source_system": "한국은행",
+        "metric_name": "한국은행 기준금리",
+        "observation_period": "2025-05-29",
+        "anchor_value": 2.5,
+        "unit": "%",
+        "source_url": "https://www.bok.or.kr/portal/singl/baseRate/list.do?dataSeCd=01&menuNo=200643",
+        "usage_note": "거시 금리 레벨 앵커"
+      },
+      {
+        "source_system": "ECOS",
+        "metric_name": "한국은행 기준금리",
+        "observation_period": "20260612",
+        "anchor_value": 2.5,
+        "unit": "%",
+        "source_url": "https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100",
+        "usage_note": "데모 기준월 금리 앵커"
+      }
+    ],
+    "KORIBOR(3개월)": [
+      {
+        "source_system": "ECOS",
+        "metric_name": "KORIBOR(3개월)",
+        "observation_period": "20260612",
+        "anchor_value": 2.92,
+        "unit": "%",
+        "source_url": "https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100",
+        "usage_note": "단기 조달금리 앵커"
+      }
+    ],
+    "회사채수익률(3년,AA-)": [
+      {
+        "source_system": "ECOS",
+        "metric_name": "회사채수익률(3년,AA-)",
+        "observation_period": "20260612",
+        "anchor_value": 4.433,
+        "unit": "%",
+        "source_url": "https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100",
+        "usage_note": "여전사 조달환경 앵커"
+      }
+    ],
+    "가계대출연체율": [
+      {
+        "source_system": "ECOS",
+        "metric_name": "가계대출연체율",
+        "observation_period": "202603",
+        "anchor_value": 0.4,
+        "unit": "%",
+        "source_url": "https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100",
+        "usage_note": "신용환경 레퍼런스 앵커"
+      }
+    ]
+  }
+}

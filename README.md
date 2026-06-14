@@ -281,7 +281,13 @@ date,company_name,portfolio_group,segment_name,collateral_type,industry,balance,
 - 실제 사내 데이터 연결 시에는 **data validation / standardization 계층**을 별도 확장해 컬럼 표준화, 결측치 처리, 타입 검증, 회사명 정규화, 이상치 점검을 추가할 예정입니다.
 - `app.py` 화면 분리는 제출 이후 리팩토링 과제로 두고, 이번 단계에서는 데이터 밀도와 설명 가능성을 우선 강화했습니다.
 
-### 12.2 기능 확장 방향
+### 12.3 공개 데이터 앵커 및 검증 계층 반영
+- `data/public_anchor_metrics.csv`에 한국은행/ECOS 공개 지표를 최초 반영했습니다. 현재 포함된 앵커는 **한국은행 기준금리 2.50(2025-05-29)**, **ECOS 기준금리 2.50(20260612)**, **KORIBOR(3개월) 2.92(20260612)**, **회사채수익률(3년, AA-) 4.433(20260612)**, **가계대출연체율 0.4(202603)** 입니다. [한국은행 기준금리 추이](https://www.bok.or.kr/portal/singl/baseRate/list.do?dataSeCd=01&menuNo=200643) [ECOS KeyStatisticList](https://ecos.bok.or.kr/api/KeyStatisticList/MN16GNV2T0LWMVGWNQ9K/xml/kr/1/100)
+- `scripts/build_anchor_params.py`는 공개 앵커 CSV를 `public_anchor_params.json`으로 변환해, 이후 합성 데이터 생성기나 시나리오 파라미터의 기준값으로 재사용할 수 있게 구성했습니다.
+- `services/data_validation.py`를 신설해 필수 컬럼 검증, 날짜/숫자형 변환, 회사명 정규화, 중복 제거, 비율 범위 점검을 공통 계층으로 분리했습니다.
+- 이 구조를 통해 데모 데이터라도 **공개 데이터 기반 앵커 → validation/service 계층 → 대시보드 적재** 흐름을 코드 수준에서 확인할 수 있습니다.
+
+### 12.4 기능 확장 방향
 - 실제 사내 데이터 연동
 - 외부 경기/부동산/뉴스 데이터 결합
 - LLM 기반 보고서 생성 고도화
