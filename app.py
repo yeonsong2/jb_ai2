@@ -467,7 +467,56 @@ def render_report_highlight_strip(conclusion_text, decision_text, accent="#1d4ed
     )
 
 
-def _prepare_borrower_watchlist_df(watchlist_df, selected_company):
+def _get_watchlist_view_label(focus_mode, integrated_view):
+    if integrated_view or focus_mode == "경영진 보고":
+        return "경영진 보고용 전체 통합 보기"
+    label_map = {
+        "PF 집중 점검": "PF 전용 보기",
+        "기업대출 점검": "기업대출 전용 보기",
+        "담보·회수 점검": "담보·회수 전용 보기",
+        "그룹 스캔": "그룹 스캔 보기",
+    }
+    return label_map.get(focus_mode, f"{focus_mode} 전용 보기")
+
+
+
+def _filter_borrower_watchlist_by_focus(watchlist_df, focus_mode, integrated_view=False):
+    if watchlist_df.empty:
+        return watchlist_df.copy(), _get_watchlist_view_label(focus_mode, integrated_view)
+
+    if integrated_view or focus_mode == "경영진 보고":
+        return watchlist_df.copy(), _get_watchlist_view_label(focus_mode, True)
+
+    product_text = watchlist_df["loan_product"].fillna("").astype(str)
+    signal_text = watchlist_df["warning_signals"].fillna("").astype(str)
+    borrower_text = watchlist_df["borrower_name"].fillna("").astype(str)
+    combined_text = (product_text + " | " + signal_text + " | " + borrower_text).str.lower()
+
+    pf_keywords = ["pf", "브릿지", "본pf", "project", "개발", "차환", "분양"]
+    corporate_keywords = ["sme", "운전자금", "시설자금", "기업", "법인", "매출채권", "무역금융", "일반대출"]
+    collateral_keywords = ["담보", "ltv", "재평가", "회수", "경매", "매각", "법적", "정상화"]
+
+    pf_mask = combined_text.apply(lambda x: any(keyword in x for keyword in pf_keywords))
+    corporate_mask = combined_text.apply(lambda x: any(keyword in x for keyword in corporate_keywords)) & (~pf_mask)
+    collateral_mask = combined_text.apply(lambda x: any(keyword in x for keyword in collateral_keywords))
+    collateral_mask = collateral_mask | (pd.to_numeric(watchlist_df["ltv"], errors="coerce").fillna(0) >= 80) | (pd.to_numeric(watchlist_df["delinquency_days"], errors="coerce").fillna(0) >= 30)
+
+    if focus_mode == "PF 집중 점검":
+        filtered = watchlist_df[pf_mask].copy()
+    elif focus_mode == "기업대출 점검":
+        filtered = watchlist_df[corporate_mask].copy()
+    elif focus_mode == "담보·회수 점검":
+        filtered = watchlist_df[collateral_mask].copy()
+    elif focus_mode == "그룹 스캔":
+        filtered = watchlist_df.copy()
+    else:
+        filtered = watchlist_df.copy()
+
+    return filtered, _get_watchlist_view_label(focus_mode, False)
+
+
+
+def _prepare_borrower_watchlist_df(watchlist_df, selected_company, focus_mode="경영진 보고", integrated_view=False):
     defaults = {
         "date": "",
         "company_name": "",
@@ -485,12 +534,20 @@ def _prepare_borrower_watchlist_df(watchlist_df, selected_company):
     if selected_company:
         watchlist_df = watchlist_df[watchlist_df["company_name"].astype(str) == str(selected_company)].copy()
 
+    watchlist_df, view_label = _filter_borrower_watchlist_by_focus(
+        watchlist_df,
+        focus_mode=focus_mode,
+        integrated_view=integrated_view,
+    )
+
     if watchlist_df.empty:
         return watchlist_df, {
             "immediate_count": 0,
             "maturity_30d_count": 0,
             "ltv_80_count": 0,
             "dpd_30_count": 0,
+            "total_count": 0,
+            "view_label": view_label,
         }
 
     watchlist_df["balance"] = pd.to_numeric(watchlist_df["balance"], errors="coerce").fillna(0.0)
@@ -524,6 +581,8 @@ def _prepare_borrower_watchlist_df(watchlist_df, selected_company):
         "maturity_30d_count": int((watchlist_df["days_to_maturity"] <= 30).sum()),
         "ltv_80_count": int((watchlist_df["ltv"] >= 80).sum()),
         "dpd_30_count": int((watchlist_df["delinquency_days"] >= 30).sum()),
+        "total_count": int(len(watchlist_df)),
+        "view_label": view_label,
     }
     return watchlist_df, summary
 
@@ -1040,6 +1099,8 @@ if "demo_mode" not in st.session_state:
     st.session_state["demo_mode"] = FOCUS_MODE_TO_DEMO.get(st.session_state["focus_mode"], "전체 흐름")
 if "llm_cache_demo_mode" not in st.session_state:
     st.session_state["llm_cache_demo_mode"] = True
+if "watchlist_integrated_view" not in st.session_state:
+    st.session_state["watchlist_integrated_view"] = st.session_state.get("focus_mode") == "경영진 보고"
 
 with st.sidebar:
     st.header("리스크 관제 설정")
@@ -1206,6 +1267,8 @@ except Exception:
 borrower_watchlist_df, borrower_watchlist_summary = _prepare_borrower_watchlist_df(
     borrower_watchlist_raw,
     selected_company,
+    focus_mode=focus_mode,
+    integrated_view=st.session_state.get("watchlist_integrated_view", focus_mode == "경영진 보고"),
 )
 borrower_watchlist_display = _build_borrower_watchlist_display(
     borrower_watchlist_df,
@@ -1660,11 +1723,35 @@ with tab4:
     st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
     st.caption(f"현재 관제 초점({focus_mode})에 맞게 재정렬한 실행 과제입니다.")
 
-    st.markdown('<div class="small-title">우선 점검 차주/대출 TOP 리스트</div>', unsafe_allow_html=True)
+    watchlist_header_left, watchlist_header_right = st.columns([0.78, 0.22])
+    with watchlist_header_left:
+        st.markdown('<div class="small-title">우선 점검 차주/대출 TOP 리스트</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-subtitle">실무 탭에서는 현재 관제 초점에 맞는 대출만, 경영진 보고에서는 전체 통합 우선순위를 보도록 전환할 수 있습니다.</div>',
+            unsafe_allow_html=True,
+        )
+    with watchlist_header_right:
+        st.toggle(
+            "경영진 통합 보기",
+            key="watchlist_integrated_view",
+            help="켜면 전체 대출을 통합 우선순위로 보고, 끄면 현재 탭 기준 전용 보기로 필터링합니다.",
+        )
+
+    current_watchlist_view_label = "경영진 보고용 전체 통합 보기" if st.session_state.get("watchlist_integrated_view", False) else borrower_watchlist_summary.get("view_label", f"{focus_mode} 전용 보기")
     st.markdown(
-        '<div class="section-subtitle">실무자가 바로 누구를 볼지 결정할 수 있도록 차주·대출 건 우선순위를 정렬했습니다.</div>',
+        f"""
+        <div class="decision-strip">
+            <div class="small-title">현재 보기 모드</div>
+            <ul>
+                <li><b>{current_watchlist_view_label}</b></li>
+                <li>선택 계열사 · <b>{selected_company}</b></li>
+                <li>표시 대상 건수 · <b>{borrower_watchlist_summary.get('total_count', 0)}건</b></li>
+            </ul>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
+
     render_borrower_watchlist_summary(borrower_watchlist_summary)
     st.markdown(
         """
@@ -1681,7 +1768,7 @@ with tab4:
     )
     render_borrower_watchlist_table(borrower_watchlist_display)
     if not borrower_watchlist_display.empty:
-        st.caption("표 컬럼 · 차주명 / 대출상품 / 잔액 / 연체일수 / LTV / 만기일 / 이상징후")
+        st.caption(f"표 컬럼 · 차주명 / 대출상품 / 잔액 / 연체일수 / LTV / 만기일 / 이상징후 · 현재 모드: {current_watchlist_view_label}")
 
     with st.expander("관리자 전용 · Agent 실행 흔적", expanded=False):
         st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 관리자만 필요 시 확인할 수 있게 숨겼습니다.</div>', unsafe_allow_html=True)
