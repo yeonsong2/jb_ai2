@@ -171,6 +171,15 @@ FOCUS_KEYWORDS = {
     "경영진 보고": ["경영", "보고", "브리프", "비교", "benchmark", "executive", "orchestrator"],
 }
 
+FOCUS_DEFAULT_METRIC = {
+    "그룹 스캔": "delinquency_rate",
+    "PF 집중 점검": "exposure_real_estate",
+    "기업대출 점검": "exposure_sme",
+    "담보·회수 점검": "exposure_real_estate",
+    "경영진 보고": "delinquency_rate",
+}
+
+
 FOCUS_TAB_LABELS = {
     "그룹 스캔": ["1. 그룹 스캔", "2. 조기경보 · 계열 비교", "3. 핵심 세그먼트", "4. 보고 · Q&A"],
     "PF 집중 점검": ["1. PF 브리프", "2. PF 경보 · 비교", "3. PF 세부진단", "4. PF 보고 · Q&A"],
@@ -1053,44 +1062,6 @@ with tab1:
         st.markdown('<div class="section-subtitle">오늘부터 이번 달까지 실제로 움직여야 할 과제입니다.</div>', unsafe_allow_html=True)
         for _, row in quick_actions.iterrows():
             render_action_card(row["시점"], row["액션 아이템"], row["목적"])
-
-    ai_left, ai_right = st.columns([1, 1])
-    with ai_left:
-        st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
-        st.caption("✦ 발표용 AI 데모 모드에서는 사전 생성 캐시를, Live 모드에서는 GPT-4o-mini 생성 결과를 표시합니다")
-        if st.button("AI Orchestrator 브리프 새로고침", use_container_width=True):
-            with st.spinner("Orchestrator Agent가 브리프를 생성하고 있습니다..."):
-                st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
-            st.session_state["orchestrator_brief_generated_at"] = _generation_label()
-        st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", safe_generate_orchestrator_brief(llm_context)), height=220)
-        st.caption(f"생성 시각 · {st.session_state.get('orchestrator_brief_generated_at', '-')}")
-    with ai_right:
-        st.markdown('<div class="small-title">에이전트 메모</div>', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("PF Agent 의견 새로고침", use_container_width=True):
-                with st.spinner("PF Surveillance Agent가 의견을 생성하고 있습니다..."):
-                    st.session_state["pf_agent_note"] = safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)
-                st.session_state["pf_agent_note_generated_at"] = _generation_label()
-        with c2:
-            if st.button("담보 Agent 의견 새로고침", use_container_width=True):
-                with st.spinner("Collateral & Recovery Agent가 의견을 생성하고 있습니다..."):
-                    st.session_state["collateral_agent_note"] = safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)
-                st.session_state["collateral_agent_note_generated_at"] = _generation_label()
-        with c3:
-            if st.button("Early Warning Agent 새로고침", use_container_width=True):
-                with st.spinner("Early Warning Agent가 조기경보를 재해석하고 있습니다..."):
-                    st.session_state["early_warning_note"] = safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)
-                st.session_state["early_warning_note_generated_at"] = _generation_label()
-        st.markdown("**PF Surveillance Agent**")
-        st.markdown(st.session_state.get("pf_agent_note", safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)).replace("\n", "  \n"))
-        st.caption(f"생성 시각 · {st.session_state.get('pf_agent_note_generated_at', '-')}")
-        st.markdown("**Collateral & Recovery Agent**")
-        st.markdown(st.session_state.get("collateral_agent_note", safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)).replace("\n", "  \n"))
-        st.caption(f"생성 시각 · {st.session_state.get('collateral_agent_note_generated_at', '-')}")
-        st.markdown("**Early Warning Agent**")
-        st.markdown(st.session_state.get("early_warning_note", safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)).replace("\n", "  \n"))
-        st.caption(f"생성 시각 · {st.session_state.get('early_warning_note_generated_at', '-')}")
 
     trend_col, driver_col = st.columns([1.15, 0.85])
     with trend_col:
