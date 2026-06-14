@@ -86,6 +86,35 @@ def load_demo_llm_payloads():
         return json.load(file)
 
 
+@st.cache_data
+def load_borrower_watchlist_data():
+    expected_columns = [
+        "date",
+        "company_name",
+        "borrower_name",
+        "loan_id",
+        "loan_product",
+        "balance",
+        "delinquency_days",
+        "ltv",
+        "maturity_date",
+        "warning_signals",
+        "relationship_manager",
+    ]
+    candidate_paths = [
+        DATA_DIR / "sample_borrower_watchlist.csv",
+        DATA_DIR / "borrower_watchlist.csv",
+    ]
+    for path in candidate_paths:
+        if path.exists():
+            df = pd.read_csv(path)
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = ""
+            return df[expected_columns].copy()
+    return pd.DataFrame(columns=expected_columns)
+
+
 class _SafeFormatDict(dict):
     def __missing__(self, key):
         return "{" + key + "}"
@@ -436,6 +465,192 @@ def render_report_highlight_strip(conclusion_text, decision_text, accent="#1d4ed
         ''',
         unsafe_allow_html=True,
     )
+
+
+def _prepare_borrower_watchlist_df(watchlist_df, selected_company):
+    defaults = {
+        "date": "",
+        "company_name": "",
+        "borrower_name": "",
+        "loan_id": "",
+        "loan_product": "",
+        "balance": 0.0,
+        "delinquency_days": 0,
+        "ltv": 0.0,
+        "maturity_date": "",
+        "warning_signals": "",
+        "relationship_manager": "",
+    }
+    watchlist_df = ensure_dataframe_columns(watchlist_df.copy(), defaults)
+    if selected_company:
+        watchlist_df = watchlist_df[watchlist_df["company_name"].astype(str) == str(selected_company)].copy()
+
+    if watchlist_df.empty:
+        return watchlist_df, {
+            "immediate_count": 0,
+            "maturity_30d_count": 0,
+            "ltv_80_count": 0,
+            "dpd_30_count": 0,
+        }
+
+    watchlist_df["balance"] = pd.to_numeric(watchlist_df["balance"], errors="coerce").fillna(0.0)
+    watchlist_df["delinquency_days"] = pd.to_numeric(watchlist_df["delinquency_days"], errors="coerce").fillna(0).astype(int)
+    watchlist_df["ltv"] = pd.to_numeric(watchlist_df["ltv"], errors="coerce").fillna(0.0)
+    watchlist_df["maturity_date"] = pd.to_datetime(watchlist_df["maturity_date"], errors="coerce")
+
+    today = pd.Timestamp.today().normalize()
+    watchlist_df["days_to_maturity"] = (watchlist_df["maturity_date"] - today).dt.days.fillna(9999)
+    watchlist_df["signal_flag"] = watchlist_df["warning_signals"].fillna("").astype(str).str.strip().apply(lambda x: 1 if x else 0)
+
+    watchlist_df["priority_score"] = (
+        watchlist_df["delinquency_days"].clip(lower=0, upper=90) * 0.40
+        + watchlist_df["ltv"].clip(lower=0, upper=100) * 0.25
+        + watchlist_df["days_to_maturity"].apply(lambda x: 25 if x <= 30 else 15 if x <= 60 else 5 if x <= 90 else 0)
+        + watchlist_df["balance"].rank(pct=True).fillna(0) * 20
+        + watchlist_df["signal_flag"] * 10
+    ).round(1)
+
+    watchlist_df["priority_bucket"] = watchlist_df["priority_score"].apply(
+        lambda x: "즉시 점검" if x >= 70 else "우선 점검" if x >= 45 else "관찰"
+    )
+
+    watchlist_df = watchlist_df.sort_values(
+        ["priority_score", "delinquency_days", "ltv", "balance"],
+        ascending=[False, False, False, False],
+    ).reset_index(drop=True)
+
+    summary = {
+        "immediate_count": int((watchlist_df["priority_bucket"] == "즉시 점검").sum()),
+        "maturity_30d_count": int((watchlist_df["days_to_maturity"] <= 30).sum()),
+        "ltv_80_count": int((watchlist_df["ltv"] >= 80).sum()),
+        "dpd_30_count": int((watchlist_df["delinquency_days"] >= 30).sum()),
+    }
+    return watchlist_df, summary
+
+
+def _signal_tag_style(signal_text):
+    text = str(signal_text or "").strip()
+    if not text:
+        return ("#e2e8f0", "#475569")
+    lower_text = text.lower()
+    if any(keyword in text for keyword in ["연체", "납입", "회수", "부실", "이자"]) or any(keyword in lower_text for keyword in ["delin", "default"]):
+        return ("#fee2e2", "#991b1b")
+    if any(keyword in text for keyword in ["차환", "만기", "브릿지", "PF", "유동성"]) or "maturity" in lower_text:
+        return ("#ffedd5", "#9a3412")
+    if any(keyword in text for keyword in ["담보", "LTV", "재평가", "감정"]) or "collateral" in lower_text:
+        return ("#dbeafe", "#1d4ed8")
+    if any(keyword in text for keyword in ["민원", "규제", "소송"]) or any(keyword in lower_text for keyword in ["complaint", "legal", "compliance"]):
+        return ("#f3e8ff", "#7e22ce")
+    return ("#e2e8f0", "#334155")
+
+
+def _render_warning_signal_tags_html(signal_text):
+    raw = str(signal_text or "").strip()
+    if not raw:
+        raw = "특이사항 없음"
+    normalized = raw.replace("|", ",").replace(";", ",").replace("·", ",").replace("/", ",")
+    parts = [part.strip() for part in normalized.split(",") if part.strip()]
+    if not parts:
+        parts = [raw]
+    tags = []
+    for part in parts[:4]:
+        bg, fg = _signal_tag_style(part)
+        tags.append(
+            f'<span style="display:inline-block; margin:2px 6px 2px 0; padding:4px 10px; border-radius:999px; background:{bg}; color:{fg}; font-size:12px; font-weight:700; white-space:nowrap;">{html.escape(part)}</span>'
+        )
+    return ''.join(tags)
+
+
+def _priority_badge_html(priority_bucket):
+    style_map = {
+        "즉시 점검": ("#fee2e2", "#991b1b", "#fecaca"),
+        "우선 점검": ("#ffedd5", "#9a3412", "#fdba74"),
+        "관찰": ("#ecfeff", "#155e75", "#a5f3fc"),
+    }
+    bg, fg, border = style_map.get(priority_bucket, ("#e2e8f0", "#334155", "#cbd5e1"))
+    return f'<span style="display:inline-block; padding:6px 12px; border-radius:999px; background:{bg}; color:{fg}; border:1px solid {border}; font-size:12px; font-weight:800;">{html.escape(str(priority_bucket))}</span>'
+
+
+def _build_borrower_watchlist_display(watchlist_df, top_n=10):
+    if watchlist_df.empty:
+        return pd.DataFrame(columns=[
+            "우선순위", "점검등급", "차주명", "대출상품", "잔액", "연체일수", "LTV", "만기일", "이상징후"
+        ])
+
+    display_df = watchlist_df.head(top_n).copy()
+    display_df["우선순위"] = range(1, len(display_df) + 1)
+    display_df["점검등급"] = display_df["priority_bucket"].apply(_priority_badge_html)
+    display_df["차주명"] = display_df["borrower_name"].replace("", "-")
+    display_df["대출상품"] = display_df["loan_product"].replace("", "-")
+    display_df["잔액"] = display_df["balance"].map(lambda x: f"{x:,.1f}억")
+    display_df["연체일수"] = display_df["delinquency_days"].map(lambda x: f"{int(x)}일")
+    display_df["LTV"] = display_df["ltv"].map(lambda x: f"{x:.1f}%")
+    display_df["만기일"] = display_df["maturity_date"].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else "-")
+    display_df["이상징후"] = display_df["warning_signals"].apply(_render_warning_signal_tags_html)
+    return display_df[["우선순위", "점검등급", "차주명", "대출상품", "잔액", "연체일수", "LTV", "만기일", "이상징후"]]
+
+
+def render_borrower_watchlist_summary(summary):
+    cols = st.columns(4)
+    with cols[0]:
+        metric_card("즉시 점검 대상", f"{summary['immediate_count']}건", "우선순위 점수 70점 이상", "Priority")
+    with cols[1]:
+        metric_card("만기 30일 이내", f"{summary['maturity_30d_count']}건", "차환/연장 협의 우선 점검", "Maturity")
+    with cols[2]:
+        metric_card("LTV 80% 이상", f"{summary['ltv_80_count']}건", "담보 방어력 재점검 필요", "LTV")
+    with cols[3]:
+        metric_card("30일 이상 연체", f"{summary['dpd_30_count']}건", "회수/정상화 트랙 분리 필요", "DPD")
+
+
+def render_borrower_watchlist_table(display_df):
+    if display_df.empty:
+        st.info("차주·대출 원천 데이터가 아직 연결되지 않았습니다. data/sample_borrower_watchlist.csv 또는 data/borrower_watchlist.csv를 추가하면 이 표가 자동으로 채워집니다.")
+        return
+
+    rows_html = []
+    for _, row in display_df.iterrows():
+        rows_html.append(
+            f"""<tr>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center; font-weight:700;\">{row['우선순위']}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0;\">{row['점검등급']}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; font-weight:700; color:#0f172a;\">{html.escape(str(row['차주명']))}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; color:#1e293b;\">{html.escape(str(row['대출상품']))}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:right; font-variant-numeric:tabular-nums;\">{html.escape(str(row['잔액']))}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center; font-variant-numeric:tabular-nums;\">{html.escape(str(row['연체일수']))}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center; font-variant-numeric:tabular-nums;\">{html.escape(str(row['LTV']))}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center; font-variant-numeric:tabular-nums;\">{html.escape(str(row['만기일']))}</td>
+                <td style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0;\">{row['이상징후']}</td>
+            </tr>"""
+        )
+
+    table_html = f"""
+    <div style=\"background:#ffffff; border:1px solid #e2e8f0; border-radius:18px; overflow:hidden; box-shadow:0 10px 24px rgba(15,23,42,0.04); margin:8px 0 12px 0;\">
+        <div style=\"padding:12px 16px; background:linear-gradient(180deg,#f8fafc 0%,#ffffff 100%); border-bottom:1px solid #e2e8f0; font-size:13px; color:#475569;\">
+            이상징후는 자동 색상 태깅되며, 점검등급은 우선순위 점수 기반 배지로 표시됩니다.
+        </div>
+        <div style=\"overflow-x:auto;\">
+            <table style=\"width:100%; border-collapse:collapse; font-size:13px; min-width:1100px;\">
+                <thead>
+                    <tr style=\"background:#f8fafc;\">
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center;\">우선순위</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:left;\">점검등급</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:left;\">차주명</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:left;\">대출상품</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:right;\">잔액</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center;\">연체일수</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center;\">LTV</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:center;\">만기일</th>
+                        <th style=\"padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:left;\">이상징후</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(rows_html)}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 
@@ -971,6 +1186,32 @@ if "목적" not in action_item_display.columns and "기대 효과" in action_ite
 action_item_display = action_item_display[[col for col in ["시점", "담당 영역", "액션 아이템", "목적"] if col in action_item_display.columns]].copy()
 action_item_display = ensure_dataframe_columns(action_item_display, {"시점": "오늘", "담당 영역": "리스크관리", "액션 아이템": "기본 점검", "목적": "안정화"})
 
+try:
+    borrower_watchlist_raw = load_borrower_watchlist_data()
+except Exception:
+    borrower_watchlist_raw = pd.DataFrame(columns=[
+        "date",
+        "company_name",
+        "borrower_name",
+        "loan_id",
+        "loan_product",
+        "balance",
+        "delinquency_days",
+        "ltv",
+        "maturity_date",
+        "warning_signals",
+        "relationship_manager",
+    ])
+
+borrower_watchlist_df, borrower_watchlist_summary = _prepare_borrower_watchlist_df(
+    borrower_watchlist_raw,
+    selected_company,
+)
+borrower_watchlist_display = _build_borrower_watchlist_display(
+    borrower_watchlist_df,
+    top_n=10,
+)
+
 ranking_table = risk_df[["company_name", "risk_score", "risk_level", "latest_delinquency_rate", "delinquency_change_pp"]].rename(
     columns={
         "company_name": "계열사",
@@ -1418,6 +1659,29 @@ with tab4:
     st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
     st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
     st.caption(f"현재 관제 초점({focus_mode})에 맞게 재정렬한 실행 과제입니다.")
+
+    st.markdown('<div class="small-title">우선 점검 차주/대출 TOP 리스트</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-subtitle">실무자가 바로 누구를 볼지 결정할 수 있도록 차주·대출 건 우선순위를 정렬했습니다.</div>',
+        unsafe_allow_html=True,
+    )
+    render_borrower_watchlist_summary(borrower_watchlist_summary)
+    st.markdown(
+        """
+        <div class="decision-strip">
+            <div class="small-title">이상징후 태깅 기준</div>
+            <ul>
+                <li>연체·회수·이자 납입 관련 신호는 빨간 태그로, 차환·만기·브릿지론 신호는 주황 태그로 표시합니다.</li>
+                <li>담보·LTV·재평가 관련 신호는 파란 태그로, 민원·규제·소송 관련 신호는 보라 태그로 구분합니다.</li>
+                <li>점검등급은 즉시 점검 / 우선 점검 / 관찰 배지로 자동 표시됩니다.</li>
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    render_borrower_watchlist_table(borrower_watchlist_display)
+    if not borrower_watchlist_display.empty:
+        st.caption("표 컬럼 · 차주명 / 대출상품 / 잔액 / 연체일수 / LTV / 만기일 / 이상징후")
 
     with st.expander("관리자 전용 · Agent 실행 흔적", expanded=False):
         st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 관리자만 필요 시 확인할 수 있게 숨겼습니다.</div>', unsafe_allow_html=True)
