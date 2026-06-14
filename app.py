@@ -1346,12 +1346,6 @@ with tab4:
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
             st.session_state["reason_report_generated_at"] = _generation_label()
-        if st.button("회사별 보고서 새로고침", use_container_width=True):
-            with st.spinner("Executive Reporting Agent가 선택 계열사 보고서를 준비하고 있습니다..."):
-                st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
-            st.session_state["reason_report_company"] = selected_company
-            st.session_state["reason_report_signature"] = llm_context_signature
-            st.session_state["reason_report_generated_at"] = _generation_label()
         st.text_area("회사별 보고서 미리보기", st.session_state["reason_report"], height=320)
         st.caption(f"생성 시각 · {st.session_state.get('reason_report_generated_at', '-')}")
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
@@ -1361,11 +1355,6 @@ with tab4:
         st.markdown('<div class="small-title">Orchestrator Agent · 그룹 브리프</div>', unsafe_allow_html=True)
         st.markdown('<ul class="doc-list"><li>계열사 비교</li><li>주요 경보</li><li>경영 판단 포인트</li></ul>', unsafe_allow_html=True)
         if "executive_report" not in st.session_state or st.session_state.get("executive_report_signature") != llm_context_signature:
-            with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
-                st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
-            st.session_state["executive_report_signature"] = llm_context_signature
-            st.session_state["executive_report_generated_at"] = _generation_label()
-        if st.button("그룹 브리프 새로고침", use_container_width=True):
             with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
                 st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
