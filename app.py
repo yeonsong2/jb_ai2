@@ -135,11 +135,14 @@ def _get_demo_payload(llm_context=None):
     selected_company = llm_context.get("selected_company", st.session_state.get("selected_company", "JB우리캐피탈"))
     focus_mode = llm_context.get("focus_mode", st.session_state.get("focus_mode", "경영진 보고"))
     exact_key = f"{selected_company}|{focus_mode}"
+    focus_key = f"__focus__|{focus_mode}"
 
     merged_payload = dict(payloads.get("__default__", {}))
+    merged_payload.update(payloads.get(focus_key, {}))
     merged_payload.update(payloads.get(exact_key, {}))
 
     merged_qa = dict(payloads.get("__default__", {}).get("qa_answers", {}))
+    merged_qa.update(payloads.get(focus_key, {}).get("qa_answers", {}))
     merged_qa.update(payloads.get(exact_key, {}).get("qa_answers", {}))
     merged_payload["qa_answers"] = merged_qa
     return merged_payload
@@ -159,6 +162,151 @@ def _get_demo_cached_text(field_name, llm_context=None, question="", scenario_re
 
 def _generation_label():
     return "DEMO CACHE" if st.session_state.get("llm_cache_demo_mode", False) else pd.Timestamp.now().strftime("%H:%M:%S")
+
+
+FOCUS_KEYWORDS = {
+    "PF 집중 점검": ["pf", "프로젝트", "브릿지", "본pf", "차환", "project"],
+    "기업대출 점검": ["기업", "sme", "법인", "운전자금", "시설자금", "매출채권", "무역금융"],
+    "담보·회수 점검": ["담보", "회수", "재평가", "리스케줄링", "recovery", "collateral"],
+    "경영진 보고": ["경영", "보고", "브리프", "비교", "benchmark", "executive", "orchestrator"],
+}
+
+FOCUS_TAB_LABELS = {
+    "그룹 스캔": ["1. 그룹 스캔", "2. 조기경보 · 계열 비교", "3. 핵심 세그먼트", "4. 보고 · Q&A"],
+    "PF 집중 점검": ["1. PF 브리프", "2. PF 경보 · 비교", "3. PF 세부진단", "4. PF 보고 · Q&A"],
+    "기업대출 점검": ["1. 기업대출 브리프", "2. 기업대출 경보 · 비교", "3. 기업대출 세부진단", "4. 기업대출 보고 · Q&A"],
+    "담보·회수 점검": ["1. 담보·회수 브리프", "2. 담보·회수 경보 · 비교", "3. 담보·회수 세부진단", "4. 담보·회수 보고 · Q&A"],
+    "경영진 보고": ["1. 경영진 요약", "2. 핵심 경보 · 계열 비교", "3. 시나리오 · 세그먼트", "4. 보고서 · Q&A"],
+}
+
+FOCUS_BANNER_MESSAGES = {
+    "그룹 스캔": "그룹 전체 비교와 High·Medium 경보 중심으로 우선 점검 대상을 빠르게 식별하는 모드입니다.",
+    "PF 집중 점검": "PF·브릿지론·차환 리스크 관련 데이터만 우선 재구성해 세부 진단과 시나리오를 강조하는 모드입니다.",
+    "기업대출 점검": "기업대출·SME·운전자금 관련 데이터만 우선 재구성해 차주군/업종 리스크를 점검하는 모드입니다.",
+    "담보·회수 점검": "담보 재평가·회수 지연·회수정책 관련 데이터만 우선 재구성해 실행 과제를 확인하는 모드입니다.",
+    "경영진 보고": "경영진 보고용 핵심 메시지와 실행 과제, 질의응답 초안을 우선 노출하는 모드입니다.",
+}
+
+FOCUS_QUESTION_OPTIONS = {
+    "그룹 스캔": [
+        "왜 {selected_company}이 최우선 점검 대상인가",
+        "그룹 내 비교 가능한 개선 사례는 어디인가",
+        "이번 달 즉시 실행해야 할 조치는 무엇인가",
+        "가장 먼저 점검해야 할 경보는 무엇인가",
+    ],
+    "PF 집중 점검": [
+        "PF 차환 리스크의 핵심 근거는 무엇인가",
+        "브릿지론과 본PF 중 어디를 먼저 점검해야 하는가",
+        "PF 관련 즉시 실행 조치는 무엇인가",
+        "스트레스 확대 시 PF에서 가장 먼저 흔들리는 구간은 어디인가",
+    ],
+    "기업대출 점검": [
+        "기업대출 포트폴리오에서 가장 취약한 차주군은 어디인가",
+        "SME 업황 악화가 연체율에 미치는 영향은 무엇인가",
+        "기업대출 관련 즉시 실행 조치는 무엇인가",
+        "업종 편중 리스크를 어떻게 설명해야 하는가",
+    ],
+    "담보·회수 점검": [
+        "담보 재평가가 가장 시급한 구간은 어디인가",
+        "회수 단계 전환이 늦어진 원인은 무엇인가",
+        "담보·회수 관련 즉시 실행 조치는 무엇인가",
+        "회수정책 우선순위를 어떻게 설명해야 하는가",
+    ],
+    "경영진 보고": [
+        "왜 {selected_company}이 최우선 점검 대상인가",
+        "PF 외 추가 악화 축은 무엇인가",
+        "이번 달 즉시 실행 조치는 무엇인가",
+        "그룹 내 비교 가능한 개선 사례는 어디인가",
+    ],
+}
+
+
+def _get_focus_tab_labels(focus_mode):
+    return FOCUS_TAB_LABELS.get(focus_mode, FOCUS_TAB_LABELS["경영진 보고"])
+
+
+
+def _get_focus_question_options(selected_company, focus_mode):
+    templates = FOCUS_QUESTION_OPTIONS.get(focus_mode, FOCUS_QUESTION_OPTIONS["경영진 보고"])
+    return [template.format(selected_company=selected_company) for template in templates]
+
+
+
+def _focus_keyword_match(df, columns, keywords):
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or not keywords:
+        return pd.DataFrame() if df is None else df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    usable_columns = [col for col in columns if col in df.columns]
+    if not usable_columns:
+        return pd.DataFrame(columns=getattr(df, 'columns', []))
+    lowered_keywords = [str(keyword).lower() for keyword in keywords]
+    mask = pd.Series(False, index=df.index)
+    for col in usable_columns:
+        series = df[col].fillna("").astype(str).str.lower()
+        for keyword in lowered_keywords:
+            mask = mask | series.str.contains(keyword, regex=False)
+    return df[mask].copy()
+
+
+
+def _get_focus_view(focus_mode, filtered_alerts, selected_driver_rows, segment_table, action_item_display, ranking_table):
+    focus_alerts = filtered_alerts.copy() if isinstance(filtered_alerts, pd.DataFrame) else pd.DataFrame()
+    focus_driver_rows = selected_driver_rows.copy() if isinstance(selected_driver_rows, pd.DataFrame) else pd.DataFrame()
+    focus_segment_table = segment_table.copy() if isinstance(segment_table, pd.DataFrame) else pd.DataFrame()
+    focus_actions = action_item_display.copy() if isinstance(action_item_display, pd.DataFrame) else pd.DataFrame()
+    focus_ranking_table = ranking_table.copy() if isinstance(ranking_table, pd.DataFrame) else pd.DataFrame()
+
+    keywords = FOCUS_KEYWORDS.get(focus_mode, [])
+    if focus_mode != "그룹 스캔":
+        filtered = _focus_keyword_match(focus_alerts, ["alert_type", "detail", "recommended_action"], keywords)
+        if not filtered.empty:
+            focus_alerts = filtered
+        filtered = _focus_keyword_match(focus_driver_rows, ["driver_name", "description"], keywords)
+        if not filtered.empty:
+            focus_driver_rows = filtered
+        filtered = _focus_keyword_match(focus_segment_table, ["세그먼트", "담보유형", "업종"], keywords)
+        if not filtered.empty:
+            focus_segment_table = filtered
+        filtered = _focus_keyword_match(focus_actions, ["담당 영역", "액션 아이템", "목적"], keywords)
+        if not filtered.empty:
+            focus_actions = filtered
+
+    focus_segment_table_display = focus_segment_table.copy()
+    if not focus_segment_table_display.empty and "연체율 변화(%p)" in focus_segment_table_display.columns:
+        focus_segment_table_display["위험도"] = focus_segment_table_display["연체율 변화(%p)"].apply(lambda x: "High" if x >= 0.30 else "Medium" if x >= 0.10 else "Low")
+        focus_segment_table_display["점검 필요"] = focus_segment_table_display["연체율 변화(%p)"].apply(lambda x: "즉시" if x >= 0.30 else "관찰" if x >= 0.10 else "안정")
+        display_cols = [col for col in ["세그먼트", "현재 연체율", "연체율 변화(%p)", "위험도", "점검 필요"] if col in focus_segment_table_display.columns]
+        focus_segment_table_display = focus_segment_table_display[display_cols].head(7)
+
+    if focus_mode == "그룹 스캔":
+        focus_card = {"label": "즉시 점검 경보", "value": f"{len(focus_alerts)}건", "caption": "High·Medium 경보 기준", "badge": "Alert"}
+        stress_defaults = {"pf": 0.30, "collateral": 0.20, "sme": 0.15}
+    elif focus_mode == "PF 집중 점검":
+        focus_card = {"label": "PF 관련 신호", "value": f"{len(focus_driver_rows)}건", "caption": "PF·브릿지론·차환 관련", "badge": "PF"}
+        stress_defaults = {"pf": 0.45, "collateral": 0.15, "sme": 0.10}
+    elif focus_mode == "기업대출 점검":
+        focus_card = {"label": "기업대출 점검 세그먼트", "value": f"{len(focus_segment_table_display)}개", "caption": "SME·운전자금 중심", "badge": "Loan"}
+        stress_defaults = {"pf": 0.15, "collateral": 0.10, "sme": 0.35}
+    elif focus_mode == "담보·회수 점검":
+        focus_card = {"label": "담보·회수 액션", "value": f"{len(focus_actions)}건", "caption": "담보 재평가·회수정책 중심", "badge": "Recovery"}
+        stress_defaults = {"pf": 0.10, "collateral": 0.40, "sme": 0.10}
+    else:
+        focus_card = {"label": "보고 핵심 과제", "value": f"{len(focus_actions.head(5))}건", "caption": "임원 보고용 우선 과제", "badge": "Exec"}
+        stress_defaults = {"pf": 0.30, "collateral": 0.20, "sme": 0.15}
+
+    return {
+        "alerts": focus_alerts,
+        "driver_rows": focus_driver_rows,
+        "top_signals": focus_driver_rows.head(3).copy() if not focus_driver_rows.empty else pd.DataFrame(),
+        "actions": focus_actions,
+        "quick_actions": focus_actions.head(3).copy() if not focus_actions.empty else pd.DataFrame(),
+        "segment_table": focus_segment_table,
+        "segment_table_display": focus_segment_table_display,
+        "ranking_table": focus_ranking_table,
+        "tab_labels": _get_focus_tab_labels(focus_mode),
+        "banner_message": FOCUS_BANNER_MESSAGES.get(focus_mode, FOCUS_BANNER_MESSAGES["경영진 보고"]),
+        "focus_card": focus_card,
+        "stress_defaults": stress_defaults,
+    }
 
 
 
@@ -581,12 +729,7 @@ with st.sidebar:
     with st.expander("질의응답 · 보고서 도구", expanded=False):
         demo_question = st.selectbox(
             "질문 선택",
-            [
-                f"왜 {selected_company}이 최우선 점검 대상인가",
-                "PF 외 추가 악화 축은 무엇인가",
-                "이번 달 즉시 실행해야 할 조치는 무엇인가",
-                "그룹 내 비교 가능한 개선 사례는 어디인가",
-            ],
+            _get_focus_question_options(selected_company, focus_mode),
         )
         if st.button("Q&A 실행", use_container_width=True):
             st.session_state["pending_qa_question"] = demo_question
@@ -697,39 +840,31 @@ if not selected_driver_rows.empty:
     selected_driver_rows["abs_bps"] = pd.to_numeric(selected_driver_rows["contribution_bps"], errors="coerce").abs().fillna(0)
     selected_driver_rows = selected_driver_rows.sort_values("abs_bps", ascending=False)
 
-top_signal_rows = selected_driver_rows.head(3).copy() if not selected_driver_rows.empty else pd.DataFrame()
-quick_actions = action_item_display.head(3).copy()
-
-FOCUS_SEGMENT_KEYWORDS = {
-    "PF 집중 점검":  ["PF", "브릿지", "본PF", "프로젝트"],
-    "기업대출 점검": ["운전자금", "기업", "중소", "설비", "시설"],
-    "담보·회수 점검":["담보", "회수", "매출채권", "리스"],
-}
-FOCUS_DEFAULT_METRIC = {
-    "그룹 스캔":     "delinquency_rate",
-    "PF 집중 점검":  "exposure_real_estate",
-    "기업대출 점검": "exposure_sme",
-    "담보·회수 점검":"exposure_real_estate",
-    "경영진 보고":   "delinquency_rate",
-}
-FOCUS_STRESS_DEFAULTS = {
-    "PF 집중 점검":  (0.6, 0.1, 0.1),
-    "기업대출 점검": (0.1, 0.1, 0.5),
-    "담보·회수 점검":(0.2, 0.6, 0.1),
-}
-
-focus_keywords = FOCUS_SEGMENT_KEYWORDS.get(focus_mode, [])
 segment_table_display = segment_table.copy()
 if not segment_table_display.empty:
-    if focus_keywords:
-        mask = segment_table_display["세그먼트"].apply(
-            lambda s: any(kw in str(s) for kw in focus_keywords)
-        )
-        focused = segment_table_display[mask]
-        segment_table_display = focused if not focused.empty else segment_table_display
     segment_table_display["위험도"] = segment_table_display["연체율 변화(%p)"].apply(lambda x: "High" if x >= 0.30 else "Medium" if x >= 0.10 else "Low")
     segment_table_display["점검 필요"] = segment_table_display["연체율 변화(%p)"].apply(lambda x: "즉시" if x >= 0.30 else "관찰" if x >= 0.10 else "안정")
     segment_table_display = segment_table_display[["세그먼트", "현재 연체율", "연체율 변화(%p)", "위험도", "점검 필요"]].head(7)
+
+focus_view = _get_focus_view(
+    focus_mode,
+    filtered_alerts,
+    selected_driver_rows,
+    segment_table,
+    action_item_display,
+    ranking_table,
+)
+filtered_alerts = focus_view["alerts"]
+top_signal_rows = focus_view["top_signals"]
+action_item_display = focus_view["actions"] if not focus_view["actions"].empty else action_item_display
+quick_actions = focus_view["quick_actions"] if not focus_view["quick_actions"].empty else action_item_display.head(3).copy()
+segment_table = focus_view["segment_table"] if not focus_view["segment_table"].empty else segment_table
+segment_table_display = focus_view["segment_table_display"] if not focus_view["segment_table_display"].empty else segment_table_display
+ranking_table = focus_view["ranking_table"] if not focus_view["ranking_table"].empty else ranking_table
+focus_card = focus_view["focus_card"]
+focus_banner_message = focus_view["banner_message"]
+focus_stress_defaults = focus_view["stress_defaults"]
+focus_tab_labels = focus_view["tab_labels"]
 
 selected_tone = "green" if selected_snapshot["mom_change_pp"] < 0 else "red" if selected_snapshot["mom_change_pp"] > 0 else "navy"
 
@@ -848,7 +983,8 @@ st.markdown(
     f"""
     <div class="demo-banner">
         <b>현재 점검 시나리오 · {st.session_state['demo_mode']}</b><br>
-        {DEMO_MODES.get(st.session_state['demo_mode'], DEMO_MODES['전체 흐름'])}
+        {DEMO_MODES.get(st.session_state['demo_mode'], DEMO_MODES['전체 흐름'])}<br>
+        <span style="opacity:0.92;">{focus_banner_message}</span>
     </div>
     """,
     unsafe_allow_html=True,
@@ -859,7 +995,7 @@ row1 = st.columns(4)
 with row1[0]:
     metric_card("최우선 계열사", max_score_company["company_name"], "그룹 기준 가장 먼저 봐야 할 계열사", "Watchlist")
 with row1[1]:
-    metric_card("즉시 점검 경보", f"{high_alert_count}건", f"전체 경보 {len(alerts_df)}건 중 High 등급", "Alert")
+    metric_card(focus_card["label"], focus_card["value"], focus_card["caption"], focus_card["badge"])
 with row1[2]:
     metric_card("선택 계열사 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot["headline"], "Core KPI")
 with row1[3]:
@@ -880,12 +1016,7 @@ st.markdown(
 
 st.markdown("### 경영관리 화면")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "1. 경영진 요약",
-    "2. 조기경보 · 계열 비교",
-    "3. 포트폴리오 세부진단",
-    "4. 대응계획 · 보고서 · Q&A",
-])
+tab1, tab2, tab3, tab4 = st.tabs(focus_tab_labels)
 
 
 with tab1:
@@ -1001,6 +1132,7 @@ with tab2:
         else:
             for _, row in filtered_alerts.head(6).iterrows():
                 render_alert_card(row)
+        st.caption(f"현재 관제 초점({focus_mode}) 기준으로 재구성된 경보 목록입니다.")
     with top_right:
         st.markdown('<div class="small-title">경보 분포</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">High, Medium, Low 구성으로 현재 긴급도를 파악합니다.</div>', unsafe_allow_html=True)
@@ -1124,10 +1256,9 @@ with tab3:
     stress_left, stress_right = st.columns([0.9, 1.1])
     with stress_left:
         st.markdown('<div class="section-subtitle">스트레스 가정</div>', unsafe_allow_html=True)
-        _pf_def, _col_def, _sme_def = FOCUS_STRESS_DEFAULTS.get(focus_mode, (0.3, 0.2, 0.15))
-        pf_stress = st.slider("PF 차환 부담(%p)", min_value=0.0, max_value=1.2, value=_pf_def, step=0.05)
-        collateral_stress = st.slider("담보 회수율 저하(%p)", min_value=0.0, max_value=1.0, value=_col_def, step=0.05)
-        sme_stress = st.slider("SME 업황 악화(%p)", min_value=0.0, max_value=1.0, value=_sme_def, step=0.05)
+        pf_stress = st.slider("PF 차환 부담(%p)", min_value=0.0, max_value=1.2, value=float(focus_stress_defaults["pf"]), step=0.05)
+        collateral_stress = st.slider("담보 회수율 저하(%p)", min_value=0.0, max_value=1.0, value=float(focus_stress_defaults["collateral"]), step=0.05)
+        sme_stress = st.slider("SME 업황 악화(%p)", min_value=0.0, max_value=1.0, value=float(focus_stress_defaults["sme"]), step=0.05)
     scenario_result = safe_simulate_what_if(selected_company, risk_df, segment_df, pf_stress, collateral_stress, sme_stress)
     with stress_right:
         st.markdown('<div class="section-subtitle">영향 추정</div>', unsafe_allow_html=True)
@@ -1181,6 +1312,7 @@ with tab4:
         st.markdown('<div class="small-title">단기 대응 로드맵</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
         st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
+        st.caption(f"현재 관제 초점({focus_mode})에 맞게 재정렬한 실행 과제입니다.")
     with top_exec_right:
         st.markdown('<div class="small-title">Agent 실행 흔적</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 한 번에 확인할 수 있게 남겼습니다.</div>', unsafe_allow_html=True)
@@ -1223,20 +1355,16 @@ with tab4:
             st.session_state["executive_report_generated_at"] = _generation_label()
         st.text_area("그룹 브리프 미리보기", st.session_state["executive_report"], height=320)
         st.caption(f"생성 시각 · {st.session_state.get('executive_report_generated_at', '-')}")
-        group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
+        group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], filtered_alerts if not filtered_alerts.empty else alerts_df)
         st.download_button("PDF 다운로드 ", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
 
     qa_left, qa_right = st.columns([0.8, 1.2])
     with qa_left:
         st.markdown('<div class="small-title">임원 예상 질의 대응</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">자주 나오는 질문과 자유 질문을 모두 바로 시연할 수 있게 구성했습니다.</div>', unsafe_allow_html=True)
-        faq_items = [
-            (f"왜 {selected_company}이 최우선 점검 대상인가", f"왜 {selected_company}이 최우선 점검 대상인가"),
-            ("PF 외 추가 악화 축은 무엇인가", "PF 외 추가 악화 축은 무엇인가"),
-            ("이번 달 즉시 실행 조치는 무엇인가", "이번 달 즉시 실행 조치는 무엇인가"),
-            ("그룹 내 비교 가능한 개선 사례는 어디인가", "그룹 내 비교 가능한 개선 사례는 어디인가"),
-            ("스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가", "스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가"),
-        ]
+        focus_questions = _get_focus_question_options(selected_company, focus_mode)
+        faq_items = [(question, question) for question in focus_questions]
+        faq_items.append(("스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가", "스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가"))
         for idx, (label, query) in enumerate(faq_items, start=1):
             if st.button(label, key=f"faq_{idx}", use_container_width=True):
                 with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
