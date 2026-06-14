@@ -383,15 +383,66 @@ def _build_rule_based_specialist_note(agent_name, focus, llm_context):
 
 
 def _build_rule_based_scenario_note(llm_context, scenario_result):
-    portfolio = llm_context.get("portfolio_summary", {})
-    return f'''[영향 해석]
-예상 연체율은 {scenario_result.get("projected_rate", 0.0):.2f}%로 기준 대비 {scenario_result.get("stress_delta", 0.0):+.2f}%p 변화합니다.
+    portfolio = llm_context.get("portfolio_summary", {}) or {}
+    snapshot = llm_context.get("snapshot", {}) or {}
+    focus_mode = llm_context.get("focus_mode", "경영진 보고")
+    base_rate = float(scenario_result.get("base_rate", snapshot.get("current_rate", 0.0)) or 0.0)
+    projected_rate = float(scenario_result.get("projected_rate", 0.0) or 0.0)
+    stress_delta = float(scenario_result.get("stress_delta", 0.0) or 0.0)
+    projected_risk_level = scenario_result.get("projected_risk_level", "N/A")
+    projected_risk_score = float(scenario_result.get("projected_risk_score", 0.0) or 0.0)
+    impact_summary = scenario_result.get("impact_summary", "세부 영향 요약 없음")
+    worst_segment = portfolio.get("worst_segment", "취약 세그먼트")
+    largest_balance_segment = portfolio.get("largest_balance_segment", "최대 익스포저 세그먼트")
+    pf_share = float(portfolio.get("pf_share", 0.0) or 0.0)
+    secured_share = float(portfolio.get("secured_share", 0.0) or 0.0)
 
-[가장 민감한 포인트]
-현재 구조에서는 {portfolio.get("worst_segment", "취약 세그먼트")}와 담보 회수 구간이 가장 먼저 추가 점검 대상이 됩니다.
+    action_map = {
+        "PF 집중 점검": [
+            "오늘 · 브릿지론·본PF 만기 도래 건을 분리해 차환 가능 / 연장 협의 / 회수 검토 3단계로 재분류합니다.",
+            "이번 주 · 사업장별 분양률·공정률·시공사 신용도 기준으로 PF 취약 리스트를 다시 정렬합니다.",
+            "이번 달 · 본PF 전환 지연 사업장과 신규 자금 집행 건을 함께 묶어 경영진 의사결정 안건으로 상정합니다.",
+        ],
+        "기업대출 점검": [
+            "오늘 · 업종 민감 차주와 PF 연계 차주를 분리해 한도 재점검 대상을 확정합니다.",
+            "이번 주 · 건설·제조·유통 등 변동성 높은 차주군 중심으로 조기경보 차주 리스트를 재편합니다.",
+            "이번 달 · 업종 편중 완화와 담보 보강 필요 차주를 묶어 재약정 후보군을 보고합니다.",
+        ],
+        "담보·회수 점검": [
+            "오늘 · LTV 상위 건과 회수 단계 지연 건을 우선 재평가 대상으로 확정합니다.",
+            "이번 주 · 담보 커버리지 부족 차주와 정상화 가능 차주를 분리해 회수 우선순위를 재정렬합니다.",
+            "이번 달 · 재평가 결과를 반영해 매각·재약정·법적 조치 후보를 경영진 안건으로 정리합니다.",
+        ],
+        "그룹 스캔": [
+            "오늘 · 최우선 점검 계열사와 동반 악화 계열사를 병렬로 점검합니다.",
+            "이번 주 · 그룹 공통 취약 신호와 계열사별 개별 원인을 나눠서 우선순위를 재정렬합니다.",
+            "이번 달 · 그룹 차원의 차환·담보·회수 실행 패키지를 통합 보고합니다.",
+        ],
+        "경영진 보고": [
+            "오늘 · 취약 차주 리스트와 만기 도래 건을 우선 재점검합니다.",
+            "이번 주 · 담보 재평가 대상과 회수 우선순위 차주를 분리 점검합니다.",
+            "이번 달 · 차환 일정, 한도 운영, 회수정책 조정안을 하나의 패키지로 보고합니다.",
+        ],
+    }
+    actions = action_map.get(focus_mode, action_map["경영진 보고"])
 
-[우선 대응]
-차주 리스트 재점검 → 담보 재평가 → 회수정책 조정 순으로 대응 우선순위를 가져가는 편이 적절합니다.'''
+    return f'''[시나리오 결과]
+- 기준 연체율 {base_rate:.2f}% → 예상 연체율 {projected_rate:.2f}% ({stress_delta:+.2f}%p)
+- 예상 위험 단계는 {projected_risk_level}, 예상 리스크 점수는 {projected_risk_score:.1f}입니다.
+- 시뮬레이션 요약: {impact_summary}
+
+[우선 점검 대상]
+- 1순위 세그먼트는 {worst_segment}입니다.
+- 최대 익스포저 세그먼트는 {largest_balance_segment}이며, 충격 확대 시 손실 흡수력 점검이 필요합니다.
+- 현재 포트폴리오 구조는 PF 비중 {pf_share:.1f}%, 담보 기반 익스포저 {secured_share:.1f}% 수준이어서 차환·담보·회수 판단을 분리하지 말고 함께 봐야 합니다.
+
+[실무 대응 순서]
+- {actions[0]}
+- {actions[1]}
+- {actions[2]}
+
+[보고 포인트]
+- 이번 시나리오는 단순 수치 변동보다 어느 세그먼트와 어떤 실행 과제가 먼저 움직여야 하는지를 보여주는 용도로 활용하는 것이 적절합니다.'''
 
 def safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=None):
     if llm_context and st.session_state.get("llm_cache_demo_mode", False):
@@ -1268,12 +1319,9 @@ with tab3:
         st.session_state["scenario_agent_generated_at"] = _generation_label()
 
     st.markdown('<div class="small-title">Scenario Interpretation Agent</div>', unsafe_allow_html=True)
-    if st.button("AI 시나리오 해석 새로고침", use_container_width=True):
-        with st.spinner("Scenario Interpretation Agent가 해석을 생성하고 있습니다..."):
-            st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
-        st.session_state["scenario_signature"] = scenario_signature
-        st.session_state["scenario_agent_generated_at"] = _generation_label()
-    st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", safe_interpret_scenario(llm_context, scenario_result)), height=180)
+    st.markdown('<div class="section-subtitle">스트레스 결과를 실무 점검 순서와 보고 포인트 중심으로 자동 정리합니다.</div>', unsafe_allow_html=True)
+    scenario_note = st.session_state.get("scenario_agent_note", safe_interpret_scenario(llm_context, scenario_result))
+    st.markdown(str(scenario_note).replace("\n", "  \n"))
     st.caption(f"생성 시각 · {st.session_state.get('scenario_agent_generated_at', '-')}")
 
 
