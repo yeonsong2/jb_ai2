@@ -55,6 +55,7 @@ from ui_components import (
     metric_card,
     render_action_card,
     render_alert_card,
+    render_insight_panel,
     render_reason_box,
     render_signal_card,
 )
@@ -450,7 +451,7 @@ with st.sidebar:
         st.markdown(
             """
             1. 주요 점검 계열사를 선택합니다.  
-            2. 경영진 요약에서 Orchestrator 브리프와 Specialist Agents 메모를 확인합니다.  
+            2. 경영진 요약에서 Orchestrator 브리프를 확인합니다.
             3. 포트폴리오 세부진단에서 시나리오 값을 조정하고 해석을 확인합니다.  
             4. 대응계획 · 보고서 · Q&A에서 보고서와 임원 질의응답을 시연합니다.
             """
@@ -728,22 +729,24 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     brief_col, signal_col, action_col = st.columns([1.35, 1.0, 0.95])
+    brief_body_html = f"""
+    <div class="insight-metrics">
+        <div class="insight-metric"><div class="insight-metric-label">현재 연체율</div><div class="insight-metric-value">{selected_snapshot['current_rate']:.2f}%</div></div>
+        <div class="insight-metric"><div class="insight-metric-label">전월 대비</div><div class="insight-metric-value">{selected_snapshot['mom_change_pp']:+.2f}%p</div></div>
+        <div class="insight-metric"><div class="insight-metric-label">3개월 평균 대비</div><div class="insight-metric-value">{selected_snapshot['vs_3m_avg_pp']:+.2f}%p</div></div>
+    </div>
+    <hr style="border:none;border-top:1px solid rgba(15,23,42,0.10);margin:14px 0 12px 0;">
+    <div class="brief-headline">{selected_company}의 핵심 위험은 <b>{portfolio_summary['worst_segment']}</b> 중심의 연체 압력 확대입니다.</div>
+    <div class="insight-note"><b>핵심 원인</b> · {selected_snapshot['negative_driver_summary']}</div>
+    <div class="insight-note"><b>시사점</b> · {portfolio_summary['worst_segment']} 차환 일정, 담보 재평가, 회수 우선순위를 같은 회의 안건으로 묶어 점검해야 합니다.</div>
+    """
     with brief_col:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">당월 핵심 리스크 브리프</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">이번 달 경영진이 가장 먼저 봐야 할 메시지</div>', unsafe_allow_html=True)
-        brief_metrics = st.columns(3)
-        with brief_metrics[0]:
-            metric_card("현재 연체율", f"{selected_snapshot['current_rate']:.2f}%")
-        with brief_metrics[1]:
-            metric_card("전월 대비", f"{selected_snapshot['mom_change_pp']:+.2f}%p")
-        with brief_metrics[2]:
-            metric_card("3개월 평균 대비", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p")
-        st.markdown("---")
-        st.markdown(f"**{selected_company}의 핵심 위험은 {portfolio_summary['worst_segment']} 중심의 연체 압력 확대입니다.**")
-        st.markdown(f"**핵심 원인** · {selected_snapshot['negative_driver_summary']}")
-        st.markdown(f"**시사점** · {portfolio_summary['worst_segment']} 차환 일정, 담보 재평가, 회수 우선순위를 같은 회의 안건으로 묶어 점검해야 합니다.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        render_insight_panel(
+            "당월 핵심 리스크 브리프",
+            "이번 달 경영진이 가장 먼저 봐야 할 메시지",
+            brief_body_html,
+            tone=selected_tone,
+        )
     with signal_col:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="small-title">{selected_company} 이상징후</div>', unsafe_allow_html=True)
@@ -777,7 +780,7 @@ with tab1:
         st.markdown('</div>', unsafe_allow_html=True)
     with ai_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">Specialist Agents 메모</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">에이전트 메모</div>', unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
             if st.button("PF Agent 의견 새로고침", use_container_width=True):
