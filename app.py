@@ -76,14 +76,97 @@ def load_data():
     return load_dataframes(METRICS_PATH, LOGS_PATH, DRIVERS_PATH, SEGMENT_PATH)
 
 
-def safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company):
+
+def _build_rule_based_orchestrator_brief(llm_context):
+    snapshot = llm_context.get("snapshot", {})
+    portfolio = llm_context.get("portfolio_summary", {})
+    actions = llm_context.get("action_items", [])
+    alerts = llm_context.get("alerts", [])
+    action_lines = [
+        f"- {item.get('시점', '오늘')} · {item.get('액션 아이템', '기본 점검')}"
+        for item in actions[:3]
+    ]
+    if not action_lines:
+        action_lines = [
+            "- 오늘 · 차주 리스트와 담보 재평가 대상 우선 점검",
+            "- 이번 주 · 만기집중 PF 차환 일정 재검토",
+            "- 이번 달 · 회수 우선순위와 한도 운영 기준 재정비",
+        ]
+    return f'''[핵심 리스크]
+- {llm_context.get("selected_company", "대상 회사")}의 핵심 위험은 {portfolio.get("worst_segment", "핵심 세그먼트")} 중심의 연체 압력 확대입니다.
+- 현재 연체율 {snapshot.get("current_rate", 0.0):.2f}%, 전월 대비 {snapshot.get("mom_change_pp", 0.0):+.2f}%p, 3개월 평균 대비 {snapshot.get("vs_3m_avg_pp", 0.0):+.2f}%p입니다.
+
+[주요 원인]
+- {snapshot.get("negative_driver_summary", "악화 요인 데이터 없음")}
+- 최대 익스포저 세그먼트는 {portfolio.get("largest_balance_segment", "데이터 없음")}이며, 취약 구간은 {portfolio.get("worst_segment", "데이터 없음")}입니다.
+- 현재 점검 대상 경보는 {len(alerts)}건입니다.
+
+[즉시 조치]
+{chr(10).join(action_lines[:3])}
+
+[경영 판단 포인트]
+- PF 비중 {portfolio.get("pf_share", 0.0)}%, 담보 기반 익스포저 {portfolio.get("secured_share", 0.0)}% 구조에서는 차환 일정과 담보 재평가를 같은 회의 안건으로 묶는 편이 적절합니다.
+- 단기 대응은 차주 리스트 재점검, 담보 재평가 대상 선별, 회수 우선순위 조정 순으로 정리하는 것이 적절합니다.'''
+
+
+def _build_rule_based_specialist_note(agent_name, focus, llm_context):
+    snapshot = llm_context.get("snapshot", {})
+    portfolio = llm_context.get("portfolio_summary", {})
+    if "PF" in agent_name:
+        current_judgement = f"{portfolio.get('worst_segment', '핵심 세그먼트')}의 차환 부담이 현재 PF 관제의 중심입니다."
+        evidence = snapshot.get("negative_driver_summary", "PF 관련 악화 요인이 관찰됩니다.")
+        action = f"{portfolio.get('worst_segment', 'PF 세그먼트')} 만기 구조와 차주별 차환 가능성부터 재확인해야 합니다."
+        memo = "본PF와 브릿지론을 분리해 우선순위를 잡으면 대응 속도가 빨라집니다."
+    elif "Collateral" in agent_name:
+        current_judgement = f"담보 방어력은 {portfolio.get('worst_segment', '취약 세그먼트')} 점검과 함께 봐야 합니다."
+        evidence = f"담보 기반 익스포저 비중은 {portfolio.get('secured_share', 0.0)}%이며, 회수 지연 신호와 함께 확인이 필요합니다."
+        action = "담보 재평가 대상과 회수 우선순위 차주를 분리해서 점검해야 합니다."
+        memo = "회수정책 조정은 차주 리스트 재점검 뒤에 붙는 것이 자연스럽습니다."
+    else:
+        current_judgement = snapshot.get("headline", "핵심 위험 재점검이 필요합니다.")
+        evidence = snapshot.get("negative_driver_summary", focus)
+        action = "우선 점검 대상과 실행 과제를 동시에 정리해야 합니다."
+        memo = "전월 대비 변화와 3개월 평균 이탈을 함께 보는 구조가 적절합니다."
+    return f'''[현재 판단]
+{current_judgement}
+
+[핵심 근거]
+{evidence}
+
+[우선 점검 항목]
+{action}
+
+[실무 메모]
+{memo}'''
+
+
+def _build_rule_based_scenario_note(llm_context, scenario_result):
+    portfolio = llm_context.get("portfolio_summary", {})
+    return f'''[영향 해석]
+예상 연체율은 {scenario_result.get("projected_rate", 0.0):.2f}%로 기준 대비 {scenario_result.get("stress_delta", 0.0):+.2f}%p 변화합니다.
+
+[가장 민감한 포인트]
+현재 구조에서는 {portfolio.get("worst_segment", "취약 세그먼트")}와 담보 회수 구간이 가장 먼저 추가 점검 대상이 됩니다.
+
+[우선 대응]
+차주 리스트 재점검 → 담보 재평가 → 회수정책 조정 순으로 대응 우선순위를 가져가는 편이 적절합니다.'''
+
+def safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=None):
+    if llm_context and api_key_configured:
+        text, err = generate_executive_report_with_llm(llm_context)
+        if not err and text:
+            return text
     try:
         return generate_delinquency_reason_report(metrics_df, drivers_df, segment_df, selected_company)
     except Exception as exc:
         return f"[{selected_company}] 보고서 생성 중 예외가 발생해 핵심 요약만 표시합니다. 상세 오류: {exc}"
 
 
-def safe_generate_executive_report(risk_df, alerts_df, latest_month):
+def safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=None):
+    if llm_context and api_key_configured:
+        text, err = generate_executive_report_with_llm(llm_context)
+        if not err and text:
+            return text
     try:
         return generate_executive_report(risk_df, alerts_df, latest_month)
     except Exception as exc:
@@ -91,30 +174,27 @@ def safe_generate_executive_report(risk_df, alerts_df, latest_month):
 
 
 def safe_generate_orchestrator_brief(llm_context):
-    if not api_key_configured:
-        return "OPENAI_API_KEY가 없어 Orchestrator Agent 브리프를 생성할 수 없습니다."
-    text, err = generate_orchestrator_brief(llm_context)
-    if err:
-        return f"Orchestrator Agent 호출 중 오류가 발생했습니다: {err}"
-    return text
+    if api_key_configured:
+        text, err = generate_orchestrator_brief(llm_context)
+        if not err and text:
+            return text
+    return _build_rule_based_orchestrator_brief(llm_context)
 
 
 def safe_generate_specialist_note(agent_name, focus, llm_context):
-    if not api_key_configured:
-        return f"OPENAI_API_KEY가 없어 {agent_name} 의견을 생성할 수 없습니다."
-    text, err = generate_specialist_opinion(agent_name, focus, llm_context)
-    if err:
-        return f"{agent_name} 호출 중 오류가 발생했습니다: {err}"
-    return text
+    if api_key_configured:
+        text, err = generate_specialist_opinion(agent_name, focus, llm_context)
+        if not err and text:
+            return text
+    return _build_rule_based_specialist_note(agent_name, focus, llm_context)
 
 
 def safe_generate_ai_executive_report(llm_context):
-    if not api_key_configured:
-        return "OPENAI_API_KEY가 없어 AI 임원 보고서를 생성할 수 없습니다."
-    text, err = generate_executive_report_with_llm(llm_context)
-    if err:
-        return f"Executive Reporting Agent 호출 중 오류가 발생했습니다: {err}"
-    return text
+    if api_key_configured:
+        text, err = generate_executive_report_with_llm(llm_context)
+        if not err and text:
+            return text
+    return _build_rule_based_orchestrator_brief(llm_context)
 
 
 def safe_answer_question(question, risk_df, alerts_df, metrics_df, llm_context=None):
@@ -129,12 +209,11 @@ def safe_answer_question(question, risk_df, alerts_df, metrics_df, llm_context=N
 
 
 def safe_interpret_scenario(llm_context, scenario_result):
-    if not api_key_configured:
-        return "OPENAI_API_KEY가 없어 시나리오 해석 Agent를 실행할 수 없습니다."
-    text, err = interpret_scenario_with_llm(llm_context, scenario_result)
-    if err:
-        return f"Scenario Interpretation Agent 호출 중 오류가 발생했습니다: {err}"
-    return text
+    if api_key_configured:
+        text, err = interpret_scenario_with_llm(llm_context, scenario_result)
+        if not err and text:
+            return text
+    return _build_rule_based_scenario_note(llm_context, scenario_result)
 
 
 def safe_simulate_what_if(selected_company, risk_df, segment_df, pf_stress, collateral_stress, sme_stress):
@@ -379,13 +458,12 @@ with st.sidebar:
             ],
         )
         if st.button("Q&A 실행", use_container_width=True):
-            st.session_state["qa_answer"] = safe_answer_question(demo_question, risk_df, alerts_df, metrics_df)
+            st.session_state["pending_qa_question"] = demo_question
         if st.button("원인 분석 보고서 갱신", use_container_width=True):
-            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
-            st.session_state["reason_report_company"] = selected_company
+            st.session_state["pending_reason_refresh"] = True
 
     if not api_key_configured:
-        st.warning("OPENAI_API_KEY가 설정되지 않아 API 연동 기능은 비활성화됩니다. Streamlit Secrets 또는 환경변수에 OPENAI_API_KEY를 설정하세요.")
+        st.caption("생성형 브리핑 엔진이 연결되지 않으면 보고서와 질의응답은 자동으로 기본 분석 모드로 이어집니다.")
 
     st.caption("사이드바는 점검 조건 중심으로 최소화했습니다.")
 
@@ -515,6 +593,48 @@ llm_context = build_llm_context(
     focus_mode=focus_mode,
 )
 
+llm_context_signature = "|".join([
+    latest_month,
+    selected_company,
+    focus_mode,
+    f"{selected_snapshot['current_rate']:.2f}",
+    f"{selected_snapshot['mom_change_pp']:.2f}",
+    f"{selected_snapshot['vs_3m_avg_pp']:.2f}",
+])
+if st.session_state.get("llm_context_signature") != llm_context_signature:
+    st.session_state["llm_context_signature"] = llm_context_signature
+    st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
+    st.session_state["pf_agent_note"] = safe_generate_specialist_note(
+        "PF Surveillance Agent",
+        "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석",
+        llm_context,
+    )
+    st.session_state["collateral_agent_note"] = safe_generate_specialist_note(
+        "Collateral & Recovery Agent",
+        "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석",
+        llm_context,
+    )
+
+pending_question = st.session_state.pop("pending_qa_question", None)
+if pending_question:
+    st.session_state["qa_answer"] = safe_answer_question(
+        pending_question,
+        risk_df,
+        alerts_df,
+        metrics_df,
+        llm_context=llm_context,
+    )
+
+if st.session_state.pop("pending_reason_refresh", False):
+    st.session_state["reason_report"] = safe_generate_reason_report(
+        metrics_df,
+        drivers_df,
+        segment_df,
+        selected_company,
+        llm_context=llm_context,
+    )
+    st.session_state["reason_report_company"] = selected_company
+
 
 st.markdown(
     f"""
@@ -614,24 +734,24 @@ with tab1:
     with ai_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
-        if st.button("AI Orchestrator 브리프 생성", use_container_width=True):
+        if st.button("AI Orchestrator 브리프 새로고침", use_container_width=True):
             st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
-        st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", "버튼을 눌러 AI 종합판단을 생성하세요."), height=220)
+        st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", safe_generate_orchestrator_brief(llm_context)), height=220)
         st.markdown('</div>', unsafe_allow_html=True)
     with ai_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Specialist Agents 메모</div>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("PF Agent 의견 생성", use_container_width=True):
+            if st.button("PF Agent 의견 새로고침", use_container_width=True):
                 st.session_state["pf_agent_note"] = safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)
         with c2:
-            if st.button("담보 Agent 의견 생성", use_container_width=True):
+            if st.button("담보 Agent 의견 새로고침", use_container_width=True):
                 st.session_state["collateral_agent_note"] = safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)
         st.markdown("**PF Surveillance Agent**")
-        st.caption(st.session_state.get("pf_agent_note", "아직 생성되지 않았습니다."))
+        st.caption(st.session_state.get("pf_agent_note", safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)))
         st.markdown("**Collateral & Recovery Agent**")
-        st.caption(st.session_state.get("collateral_agent_note", "아직 생성되지 않았습니다."))
+        st.caption(st.session_state.get("collateral_agent_note", safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)))
         st.markdown('</div>', unsafe_allow_html=True)
 
     trend_col, driver_col = st.columns([1.15, 0.85])
@@ -857,11 +977,17 @@ with tab3:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
+    scenario_signature = f"{llm_context_signature}|{pf_stress:.2f}|{collateral_stress:.2f}|{sme_stress:.2f}"
+    if st.session_state.get("scenario_signature") != scenario_signature:
+        st.session_state["scenario_signature"] = scenario_signature
+        st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
+
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">Scenario Interpretation Agent</div>', unsafe_allow_html=True)
-    if st.button("AI 시나리오 해석 생성", use_container_width=True):
+    if st.button("AI 시나리오 해석 새로고침", use_container_width=True):
         st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
-    st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", "버튼을 눌러 시나리오 해석을 생성하세요."), height=180)
+        st.session_state["scenario_signature"] = scenario_signature
+    st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", safe_interpret_scenario(llm_context, scenario_result)), height=180)
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -877,15 +1003,14 @@ with tab4:
         st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">회사별 임원 보고서</div>', unsafe_allow_html=True)
         st.markdown('<ul class="doc-list"><li>핵심 위험 요약</li><li>포트폴리오 구조</li><li>대응 일정 및 담당</li></ul>', unsafe_allow_html=True)
-        if "reason_report" not in st.session_state or st.session_state.get("reason_report_company") != selected_company:
-            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+        if "reason_report" not in st.session_state or st.session_state.get("reason_report_signature") != llm_context_signature:
+            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
+            st.session_state["reason_report_signature"] = llm_context_signature
         if st.button("회사별 보고서 새로고침", use_container_width=True):
-            if api_key_configured:
-                st.session_state["reason_report"] = safe_generate_ai_executive_report(llm_context)
-            else:
-                st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
+            st.session_state["reason_report_signature"] = llm_context_signature
         st.text_area("회사별 보고서 미리보기", st.session_state["reason_report"], height=320)
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
         st.download_button("PDF 다운로드", data=company_pdf, file_name=f"{selected_company}_{latest_month}_company_report.pdf", mime="application/pdf", use_container_width=True)
@@ -894,13 +1019,12 @@ with tab4:
         st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">그룹 리스크 브리프</div>', unsafe_allow_html=True)
         st.markdown('<ul class="doc-list"><li>계열사 비교</li><li>주요 경보</li><li>경영 판단 포인트</li></ul>', unsafe_allow_html=True)
-        if "executive_report" not in st.session_state:
-            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
+        if "executive_report" not in st.session_state or st.session_state.get("executive_report_signature") != llm_context_signature:
+            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
+            st.session_state["executive_report_signature"] = llm_context_signature
         if st.button("그룹 브리프 새로고침", use_container_width=True):
-            if api_key_configured:
-                st.session_state["executive_report"] = safe_generate_orchestrator_brief(llm_context)
-            else:
-                st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
+            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
+            st.session_state["executive_report_signature"] = llm_context_signature
         st.text_area("그룹 브리프 미리보기", st.session_state["executive_report"], height=320)
         group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
         st.download_button("PDF 다운로드 ", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
