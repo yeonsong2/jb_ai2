@@ -718,20 +718,21 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     brief_col, signal_col, action_col = st.columns([1.35, 1.0, 0.95])
+    brief_body_html = f"""
+    <div class="brief-headline">{selected_company}의 핵심 위험은 <b>{portfolio_summary['worst_segment']}</b> 중심의 연체 압력 확대입니다.</div>
+    <div class="insight-metrics">
+        <div class="insight-metric"><div class="insight-metric-label">현재 연체율</div><div class="insight-metric-value">{selected_snapshot['current_rate']:.2f}%</div></div>
+        <div class="insight-metric"><div class="insight-metric-label">전월 대비</div><div class="insight-metric-value">{selected_snapshot['mom_change_pp']:+.2f}%p</div></div>
+        <div class="insight-metric"><div class="insight-metric-label">3개월 평균 대비</div><div class="insight-metric-value">{selected_snapshot['vs_3m_avg_pp']:+.2f}%p</div></div>
+    </div>
+    <div class="insight-note"><b>핵심 원인</b> · {selected_snapshot['negative_driver_summary']}</div>
+    <div class="insight-note"><b>실무 시사점</b> · {portfolio_summary['worst_segment']} 차환 일정, 담보 재평가, 회수 우선순위를 같은 회의 안건으로 묶어 점검해야 합니다.</div>
+    """
     with brief_col:
         render_insight_panel(
             "당월 핵심 리스크 브리프",
             "이번 달 경영진이 가장 먼저 봐야 할 메시지",
-            f"""
-            <div class="brief-headline">{selected_company}의 핵심 위험은 <b>{portfolio_summary['worst_segment']}</b> 중심의 연체 압력 확대입니다.</div>
-            <div class="insight-metrics">
-                <div class="insight-metric"><div class="insight-metric-label">현재 연체율</div><div class="insight-metric-value">{selected_snapshot['current_rate']:.2f}%</div></div>
-                <div class="insight-metric"><div class="insight-metric-label">전월 대비</div><div class="insight-metric-value">{selected_snapshot['mom_change_pp']:+.2f}%p</div></div>
-                <div class="insight-metric"><div class="insight-metric-label">3개월 평균 대비</div><div class="insight-metric-value">{selected_snapshot['vs_3m_avg_pp']:+.2f}%p</div></div>
-            </div>
-            <div class="insight-note"><b>핵심 원인</b> · {selected_snapshot['negative_driver_summary']}</div>
-            <div class="insight-note"><b>실무 시사점</b> · {portfolio_summary['worst_segment']} 차환 일정, 담보 재평가, 회수 우선순위를 같은 회의 안건으로 묶어 점검해야 합니다.</div>
-            """,
+            brief_body_html,
             tone=selected_tone,
         )
     with signal_col:
