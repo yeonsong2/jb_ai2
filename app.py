@@ -700,8 +700,33 @@ if not selected_driver_rows.empty:
 top_signal_rows = selected_driver_rows.head(3).copy() if not selected_driver_rows.empty else pd.DataFrame()
 quick_actions = action_item_display.head(3).copy()
 
+FOCUS_SEGMENT_KEYWORDS = {
+    "PF 집중 점검":  ["PF", "브릿지", "본PF", "프로젝트"],
+    "기업대출 점검": ["운전자금", "기업", "중소", "설비", "시설"],
+    "담보·회수 점검":["담보", "회수", "매출채권", "리스"],
+}
+FOCUS_DEFAULT_METRIC = {
+    "그룹 스캔":     "delinquency_rate",
+    "PF 집중 점검":  "exposure_real_estate",
+    "기업대출 점검": "exposure_sme",
+    "담보·회수 점검":"exposure_real_estate",
+    "경영진 보고":   "delinquency_rate",
+}
+FOCUS_STRESS_DEFAULTS = {
+    "PF 집중 점검":  (0.6, 0.1, 0.1),
+    "기업대출 점검": (0.1, 0.1, 0.5),
+    "담보·회수 점검":(0.2, 0.6, 0.1),
+}
+
+focus_keywords = FOCUS_SEGMENT_KEYWORDS.get(focus_mode, [])
 segment_table_display = segment_table.copy()
 if not segment_table_display.empty:
+    if focus_keywords:
+        mask = segment_table_display["세그먼트"].apply(
+            lambda s: any(kw in str(s) for kw in focus_keywords)
+        )
+        focused = segment_table_display[mask]
+        segment_table_display = focused if not focused.empty else segment_table_display
     segment_table_display["위험도"] = segment_table_display["연체율 변화(%p)"].apply(lambda x: "High" if x >= 0.30 else "Medium" if x >= 0.10 else "Low")
     segment_table_display["점검 필요"] = segment_table_display["연체율 변화(%p)"].apply(lambda x: "즉시" if x >= 0.30 else "관찰" if x >= 0.10 else "안정")
     segment_table_display = segment_table_display[["세그먼트", "현재 연체율", "연체율 변화(%p)", "위험도", "점검 필요"]].head(7)
@@ -1002,7 +1027,9 @@ with tab2:
     bottom_left, bottom_right = st.columns([1.2, 0.8])
     with bottom_left:
         st.markdown('<div class="small-title">핵심 지표 추이 비교</div>', unsafe_allow_html=True)
-        metric_choice = st.selectbox("추이 지표 선택", ["delinquency_rate", "complaints", "abnormal_events", "exposure_real_estate", "exposure_sme"], index=0)
+        _metric_options = ["delinquency_rate", "complaints", "abnormal_events", "exposure_real_estate", "exposure_sme"]
+        _default_metric = FOCUS_DEFAULT_METRIC.get(focus_mode, "delinquency_rate")
+        metric_choice = st.selectbox("추이 지표 선택", _metric_options, index=_metric_options.index(_default_metric))
         metric_label_map = {
             "delinquency_rate": "연체율",
             "complaints": "민원 건수",
@@ -1097,9 +1124,10 @@ with tab3:
     stress_left, stress_right = st.columns([0.9, 1.1])
     with stress_left:
         st.markdown('<div class="section-subtitle">스트레스 가정</div>', unsafe_allow_html=True)
-        pf_stress = st.slider("PF 차환 부담(%p)", min_value=0.0, max_value=1.2, value=0.3, step=0.05)
-        collateral_stress = st.slider("담보 회수율 저하(%p)", min_value=0.0, max_value=1.0, value=0.2, step=0.05)
-        sme_stress = st.slider("SME 업황 악화(%p)", min_value=0.0, max_value=1.0, value=0.15, step=0.05)
+        _pf_def, _col_def, _sme_def = FOCUS_STRESS_DEFAULTS.get(focus_mode, (0.3, 0.2, 0.15))
+        pf_stress = st.slider("PF 차환 부담(%p)", min_value=0.0, max_value=1.2, value=_pf_def, step=0.05)
+        collateral_stress = st.slider("담보 회수율 저하(%p)", min_value=0.0, max_value=1.0, value=_col_def, step=0.05)
+        sme_stress = st.slider("SME 업황 악화(%p)", min_value=0.0, max_value=1.0, value=_sme_def, step=0.05)
     scenario_result = safe_simulate_what_if(selected_company, risk_df, segment_df, pf_stress, collateral_stress, sme_stress)
     with stress_right:
         st.markdown('<div class="section-subtitle">영향 추정</div>', unsafe_allow_html=True)
