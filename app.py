@@ -1491,13 +1491,6 @@ with tab4:
         answer_text = st.session_state.get("qa_answer", safe_answer_question(f"왜 {selected_company}이 최우선 점검 대상인가", risk_df, alerts_df, metrics_df, llm_context=llm_context))
         st.markdown("> " + str(answer_text).replace("\n", "\n> "))
         st.caption(f"생성 시각 · {st.session_state.get('qa_answer_generated_at', '-')}")
-        st.markdown('#### 현재 선택 계열사 핵심 요인')
-        driver_items = [item.strip() for item in str(selected_risk_row.get("top_drivers", "")).split("|") if item.strip()]
-        if driver_items:
-            for item in driver_items[:5]:
-                st.markdown(f"- {item}")
-        else:
-            st.caption("표시할 핵심 요인이 없습니다.")
 
 
 st.caption("상단 브리프, 조기경보 보드, 세그먼트 히트맵, 문서형 다운로드 영역 중심으로 화면을 재정렬했습니다.")
