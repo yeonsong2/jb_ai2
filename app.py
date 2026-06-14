@@ -713,7 +713,7 @@ with tab1:
         )
     with signal_col:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">JB우리캐피탈 이상징후</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="small-title">{selected_company} 이상징후</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">숫자보다 먼저 봐야 할 이상 신호 3개를 압축했습니다.</div>', unsafe_allow_html=True)
         if top_signal_rows.empty:
             render_signal_card("핵심 위험 신호", selected_snapshot["negative_driver_summary"], f"{selected_snapshot['mom_change_pp']:+.2f}%p", "high")
@@ -992,11 +992,19 @@ with tab3:
 
 
 with tab4:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="small-title">단기 대응 로드맵</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
-    st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    top_exec_left, top_exec_right = st.columns([1.05, 0.95])
+    with top_exec_left:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">단기 대응 로드맵</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
+        st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with top_exec_right:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">Agent 실행 흔적</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 한 번에 확인할 수 있게 남겼습니다.</div>', unsafe_allow_html=True)
+        st.dataframe(agent_trace_df.head(8), use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     doc_left, doc_right = st.columns([1, 1])
     with doc_left:
