@@ -445,7 +445,6 @@ with st.sidebar:
         f'<div class="sidebar-kpi"><b>기준 월</b> · {latest_month}<br><b>메인 포트폴리오</b> · {selected_company}<br><b>관제 초점</b> · {focus_mode}<br><b>경보 필터</b> · {", ".join(severity_filter) if severity_filter else "없음"}</div>',
         unsafe_allow_html=True,
     )
-    st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("시연 흐름 가이드", expanded=False):
         st.markdown(
@@ -748,7 +747,6 @@ with tab1:
             tone=selected_tone,
         )
     with signal_col:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="small-title">{selected_company} 이상징후</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">숫자보다 먼저 봐야 할 이상 신호 3개를 압축했습니다.</div>', unsafe_allow_html=True)
         if top_signal_rows.empty:
@@ -757,18 +755,14 @@ with tab1:
             for _, row in top_signal_rows.iterrows():
                 tone = "positive" if str(row.get("direction", "negative")) == "positive" else "high"
                 render_signal_card(row["driver_name"], row["description"], f"{float(row['contribution_bps']):+.0f}bp", tone)
-        st.markdown('</div>', unsafe_allow_html=True)
     with action_col:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">즉시 점검 과제</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">오늘부터 이번 달까지 실제로 움직여야 할 과제입니다.</div>', unsafe_allow_html=True)
         for _, row in quick_actions.iterrows():
             render_action_card(row["시점"], row["액션 아이템"], row["목적"])
-        st.markdown('</div>', unsafe_allow_html=True)
 
     ai_left, ai_right = st.columns([1, 1])
     with ai_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
         st.caption("✦ GPT-4o-mini가 실시간 생성한 브리프입니다")
         if st.button("AI Orchestrator 브리프 새로고침", use_container_width=True):
@@ -777,9 +771,7 @@ with tab1:
             st.session_state["orchestrator_brief_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", safe_generate_orchestrator_brief(llm_context)), height=220)
         st.caption(f"생성 시각 · {st.session_state.get('orchestrator_brief_generated_at', '-')}")
-        st.markdown('</div>', unsafe_allow_html=True)
     with ai_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">에이전트 메모</div>', unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -806,11 +798,9 @@ with tab1:
         st.markdown("**Early Warning Agent**")
         st.markdown(st.session_state.get("early_warning_note", safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)).replace("\n", "  \n"))
         st.caption(f"생성 시각 · {st.session_state.get('early_warning_note_generated_at', '-')}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     trend_col, driver_col = st.columns([1.15, 0.85])
     with trend_col:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">최근 6개월 위험 추세</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">JB우리캐피탈 추세, 그룹 평균, 3개월 이동평균을 한 화면에서 비교합니다.</div>', unsafe_allow_html=True)
         company_trend_fig = build_company_trend_figure(metrics_df, selected_company)
@@ -818,13 +808,10 @@ with tab1:
             st.info("추세 차트를 그릴 데이터가 없습니다.")
         else:
             st.plotly_chart(company_trend_fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with driver_col:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">위험 요인 구성</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">현재 점수를 끌어올리는 요인을 항목별로 분해했습니다.</div>', unsafe_allow_html=True)
         st.plotly_chart(build_driver_mix_figure(selected_risk_row), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     top_action = quick_actions.iloc[0]["액션 아이템"] if not quick_actions.empty else "차주 리스트 재점검"
     top_purpose = quick_actions.iloc[0]["목적"] if not quick_actions.empty else "취약 차주군 우선 점검"
@@ -840,13 +827,11 @@ with tab1:
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 with tab2:
     top_left, top_right = st.columns([1.2, 0.8])
     with top_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">당월 조기경보 현황</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">실제로 점검해야 할 경보만 카드형으로 압축했습니다.</div>', unsafe_allow_html=True)
         if filtered_alerts.empty:
@@ -854,9 +839,7 @@ with tab2:
         else:
             for _, row in filtered_alerts.head(6).iterrows():
                 render_alert_card(row)
-        st.markdown('</div>', unsafe_allow_html=True)
     with top_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">경보 분포</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">High, Medium, Low 구성으로 현재 긴급도를 파악합니다.</div>', unsafe_allow_html=True)
         alert_dist_fig = build_alert_distribution_figure(filtered_alerts if not filtered_alerts.empty else alerts_df)
@@ -864,17 +847,13 @@ with tab2:
             st.info("경보 분포를 계산할 데이터가 없습니다.")
         else:
             st.plotly_chart(alert_dist_fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     mid_left, mid_right = st.columns([0.95, 1.05])
     with mid_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">계열사 건전성 비교</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">랭킹 표는 핵심 컬럼만 남겨 빠르게 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
         st.dataframe(ranking_table.head(4), use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with mid_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">리스크 포지셔닝</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">현재 연체율과 전월 대비 변화를 동시에 보면 어디가 위험한지 더 빨리 보입니다.</div>', unsafe_allow_html=True)
         position_fig = build_company_positioning_figure(risk_df)
@@ -882,11 +861,9 @@ with tab2:
             st.info("포지셔닝 차트를 생성할 데이터가 없습니다.")
         else:
             st.plotly_chart(position_fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     bottom_left, bottom_right = st.columns([1.2, 0.8])
     with bottom_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">핵심 지표 추이 비교</div>', unsafe_allow_html=True)
         metric_choice = st.selectbox("추이 지표 선택", ["delinquency_rate", "complaints", "abnormal_events", "exposure_real_estate", "exposure_sme"], index=0)
         metric_label_map = {
@@ -909,9 +886,7 @@ with tab2:
             )
             trend_fig = apply_chart_theme(trend_fig, height=360, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(trend_fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with bottom_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">해석 포인트</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">차트를 본 뒤 바로 말할 수 있어야 하는 문장만 남겼습니다.</div>', unsafe_allow_html=True)
         st.markdown(
@@ -922,9 +897,7 @@ with tab2:
             """,
             unsafe_allow_html=True,
         )
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">리스크 축 히트맵</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-subtitle">계열사별 어떤 위험 축이 점수를 끌어올리는지 한 번에 비교합니다.</div>', unsafe_allow_html=True)
     heatmap_fig = build_risk_heatmap_figure(risk_df)
@@ -932,7 +905,6 @@ with tab2:
         st.info("리스크 히트맵을 생성할 데이터가 없습니다.")
     else:
         st.plotly_chart(heatmap_fig, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 with tab3:
@@ -944,7 +916,6 @@ with tab3:
     with top_metrics[2]:
         metric_card("최대 익스포저 세그먼트", portfolio_summary['largest_balance_segment'], f"현재 잔액 {portfolio_summary['largest_balance']:.1f}", "Exposure")
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">세그먼트 위험 히트맵</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-subtitle">세그먼트별 위험이 어디에 몰려 있는지 숫자보다 먼저 보이게 배치했습니다.</div>', unsafe_allow_html=True)
     segment_heatmap_fig = build_segment_heatmap_figure(segment_table)
@@ -952,31 +923,25 @@ with tab3:
         st.info("세그먼트 히트맵을 생성할 데이터가 없습니다.")
     else:
         st.plotly_chart(segment_heatmap_fig, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
     mid_left, mid_right = st.columns([1, 1])
     with mid_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">세그먼트별 연체율 변화</div>', unsafe_allow_html=True)
         seg_fig = build_segment_delta_figure(segment_table)
         if seg_fig is None:
             st.info("세그먼트 변화 데이터가 없습니다.")
         else:
             st.plotly_chart(seg_fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with mid_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">잔액 대비 위험 포지셔닝</div>', unsafe_allow_html=True)
         pos_fig = build_segment_positioning_figure(segment_table)
         if pos_fig is None:
             st.info("리스크 포지셔닝 산포도에 사용할 데이터가 없습니다.")
         else:
             st.plotly_chart(pos_fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     detail_left, detail_right = st.columns([1.05, 0.95])
     with detail_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="small-title">{selected_company} 포트폴리오 구조 요약</div>', unsafe_allow_html=True)
         st.markdown(
             f'<div class="premium-note">PF 비중 <b>{portfolio_summary["pf_share"]}%</b> · 담보 기반 비중 <b>{portfolio_summary["secured_share"]}%</b><br>'
@@ -986,15 +951,11 @@ with tab3:
         )
         render_reason_box("연체율 상승/악화 이유", selected_snapshot["negative_driver_summary"], positive=False)
         render_reason_box("개선 신호", selected_snapshot["positive_driver_summary"], positive=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with detail_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">세그먼트 상세 점검</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">표는 상위 7개만 남겨 읽기 부담을 줄였습니다.</div>', unsafe_allow_html=True)
         st.dataframe(segment_table_display, use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">스트레스 시나리오 점검</div>', unsafe_allow_html=True)
     stress_left, stress_right = st.columns([0.9, 1.1])
     with stress_left:
@@ -1031,7 +992,6 @@ with tab3:
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('</div>', unsafe_allow_html=True)
 
     scenario_signature = f"{llm_context_signature}|{pf_stress:.2f}|{collateral_stress:.2f}|{sme_stress:.2f}"
     if st.session_state.get("scenario_signature") != scenario_signature:
@@ -1040,7 +1000,6 @@ with tab3:
             st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
         st.session_state["scenario_agent_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">Scenario Interpretation Agent</div>', unsafe_allow_html=True)
     if st.button("AI 시나리오 해석 새로고침", use_container_width=True):
         with st.spinner("Scenario Interpretation Agent가 해석을 생성하고 있습니다..."):
@@ -1049,23 +1008,18 @@ with tab3:
         st.session_state["scenario_agent_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
     st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", safe_interpret_scenario(llm_context, scenario_result)), height=180)
     st.caption(f"생성 시각 · {st.session_state.get('scenario_agent_generated_at', '-')}")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 with tab4:
     top_exec_left, top_exec_right = st.columns([1.05, 0.95])
     with top_exec_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">단기 대응 로드맵</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
         st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with top_exec_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Agent 실행 흔적</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 한 번에 확인할 수 있게 남겼습니다.</div>', unsafe_allow_html=True)
         st.dataframe(agent_trace_df.head(8), use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     doc_left, doc_right = st.columns([1, 1])
     with doc_left:
@@ -1088,7 +1042,6 @@ with tab4:
         st.caption(f"생성 시각 · {st.session_state.get('reason_report_generated_at', '-')}")
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
         st.download_button("PDF 다운로드", data=company_pdf, file_name=f"{selected_company}_{latest_month}_company_report.pdf", mime="application/pdf", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with doc_right:
         st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Orchestrator Agent · 그룹 브리프</div>', unsafe_allow_html=True)
@@ -1107,11 +1060,9 @@ with tab4:
         st.caption(f"생성 시각 · {st.session_state.get('executive_report_generated_at', '-')}")
         group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
         st.download_button("PDF 다운로드 ", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     qa_left, qa_right = st.columns([0.8, 1.2])
     with qa_left:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">임원 예상 질의 대응</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">자주 나오는 질문과 자유 질문을 모두 바로 시연할 수 있게 구성했습니다.</div>', unsafe_allow_html=True)
         faq_items = [
@@ -1131,9 +1082,7 @@ with tab4:
             with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
                 st.session_state["qa_answer"] = safe_answer_question(custom_q, risk_df, alerts_df, metrics_df, llm_context=llm_context)
             st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
-        st.markdown('</div>', unsafe_allow_html=True)
     with qa_right:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">답변 및 근거</div>', unsafe_allow_html=True)
         answer_text = st.session_state.get("qa_answer", safe_answer_question(f"왜 {selected_company}이 최우선 점검 대상인가", risk_df, alerts_df, metrics_df, llm_context=llm_context))
         st.markdown("> " + str(answer_text).replace("\n", "\n> "))
@@ -1145,7 +1094,6 @@ with tab4:
                 st.markdown(f"- {item}")
         else:
             st.caption("표시할 핵심 요인이 없습니다.")
-        st.markdown('</div>', unsafe_allow_html=True)
 
 
 st.caption("상단 브리프, 조기경보 보드, 세그먼트 히트맵, 문서형 다운로드 영역 중심으로 화면을 재정렬했습니다.")
