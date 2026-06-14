@@ -447,6 +447,16 @@ with st.sidebar:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
+    with st.expander("시연 흐름 가이드", expanded=False):
+        st.markdown(
+            """
+            1. 주요 점검 계열사를 선택합니다.  
+            2. 경영진 요약에서 Orchestrator 브리프와 Specialist Agents 메모를 확인합니다.  
+            3. 포트폴리오 세부진단에서 시나리오 값을 조정하고 해석을 확인합니다.  
+            4. 대응계획 · 보고서 · Q&A에서 보고서와 임원 질의응답을 시연합니다.
+            """
+        )
+
     with st.expander("질의응답 · 보고서 도구", expanded=False):
         demo_question = st.selectbox(
             "질문 선택",
@@ -759,6 +769,7 @@ with tab1:
     with ai_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
+        st.caption("✦ GPT-4o-mini가 실시간 생성한 브리프입니다")
         if st.button("AI Orchestrator 브리프 새로고침", use_container_width=True):
             with st.spinner("Orchestrator Agent가 브리프를 생성하고 있습니다..."):
                 st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
@@ -1099,17 +1110,24 @@ with tab4:
     with qa_left:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">임원 예상 질의 대응</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">자주 나오는 질문을 버튼형으로 배치했습니다.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">자주 나오는 질문과 자유 질문을 모두 바로 시연할 수 있게 구성했습니다.</div>', unsafe_allow_html=True)
         faq_items = [
             (f"왜 {selected_company}이 최우선 점검 대상인가", f"왜 {selected_company}이 최우선 점검 대상인가"),
-            ("PF 외에 추가 악화 축은 무엇인가", "PF 외에 추가 악화 축은 무엇인가"),
-            ("이번 달 즉시 실행해야 할 조치는 무엇인가", "이번 달 즉시 실행해야 할 조치는 무엇인가"),
+            ("PF 외 추가 악화 축은 무엇인가", "PF 외 추가 악화 축은 무엇인가"),
+            ("이번 달 즉시 실행 조치는 무엇인가", "이번 달 즉시 실행 조치는 무엇인가"),
             ("그룹 내 비교 가능한 개선 사례는 어디인가", "그룹 내 비교 가능한 개선 사례는 어디인가"),
             ("스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가", "스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가"),
         ]
         for idx, (label, query) in enumerate(faq_items, start=1):
             if st.button(label, key=f"faq_{idx}", use_container_width=True):
-                st.session_state["qa_answer"] = safe_answer_question(query, risk_df, alerts_df, metrics_df, llm_context=llm_context)
+                with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
+                    st.session_state["qa_answer"] = safe_answer_question(query, risk_df, alerts_df, metrics_df, llm_context=llm_context)
+                st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+        custom_q = st.text_input("직접 질문 입력", placeholder="예: 이번 달 가장 먼저 점검해야 할 세그먼트는 무엇인가")
+        if st.button("질문하기", use_container_width=True) and custom_q:
+            with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
+                st.session_state["qa_answer"] = safe_answer_question(custom_q, risk_df, alerts_df, metrics_df, llm_context=llm_context)
+            st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.markdown('</div>', unsafe_allow_html=True)
     with qa_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)

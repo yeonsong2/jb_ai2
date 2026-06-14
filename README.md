@@ -31,6 +31,12 @@ JB금융그룹 Fin:AI Challenge 제출용 **기업금융 리스크 관제형 멀
 - **Benchmark Agent**: 계열사 간 건전성 비교 및 우수사례 확인
 - **Executive Reporting / Interactive Q&A Agent**: 경영진 보고 문안과 발표 질의응답 생성
 
+### AI 엔진 구조
+- **Orchestrator Agent** → `gpt-4o-mini`로 그룹 리스크 브리프 생성
+- **PF / Collateral Agent** → 전문 관점 의견 생성
+- **Q&A Agent** → 임원 질의 즉답
+- **Scenario Agent** → 스트레스 결과 해석
+
 ---
 
 ## 3. 메인 시나리오
