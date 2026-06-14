@@ -111,17 +111,15 @@ def build_llm_context(
 def generate_orchestrator_brief(context: dict[str, Any], model: str = DEFAULT_MODEL):
     system_prompt = """
 당신은 JB금융그룹 CRO 대시보드의 Orchestrator Agent다.
-목표는 여러 분석 결과를 종합해 경영진이 30초 안에 이해할 수 있는 브리프를 작성하는 것이다.
+목표는 여러 분석 결과를 종합해 경영진이 20초 안에 읽는 브리프를 작성하는 것이다.
 반드시 한국어로 작성하고, 데이터에 없는 내용은 추정하지 마라.
+전체 출력은 8줄 이내로 제한하라.
 출력 형식:
-[핵심 리스크]
-- 2문장 이내
-[주요 원인]
-- bullet 3개 이내
-[즉시 조치]
-- bullet 3개 이내
-[경영 판단 포인트]
-- 2문장 이내
+[핵심 리스크] 1~2문장
+[주요 원인] bullet 2개 이내
+[즉시 조치] bullet 2개 이내
+[경영 판단 포인트] 1문장
+숫자와 세그먼트명을 우선 사용하라.
 """.strip()
     return _call_chat_model(system_prompt, context, model=model, temperature=0.2)
 
@@ -136,9 +134,10 @@ def generate_specialist_opinion(agent_name: str, focus: str, context: dict[str, 
 [핵심 근거]
 [우선 점검 항목]
 [실무 메모]
-각 섹션은 2문장 이내로 짧게 작성하라.
+각 섹션은 1문장, 전체는 6줄 이내로 제한하라.
+중복 설명과 배경 서술은 제거하라.
 """.strip()
-    return _call_chat_model(system_prompt, context, model=model, temperature=0.3)
+    return _call_chat_model(system_prompt, context, model=model, temperature=0.25)
 
 
 def generate_executive_report_with_llm(context: dict[str, Any], model: str = DEFAULT_MODEL):
@@ -152,17 +151,17 @@ def generate_executive_report_with_llm(context: dict[str, Any], model: str = DEF
 3. 포트폴리오 구조 해석
 4. 대응 우선순위
 5. 경영진 한 줄 결론
-각 항목은 짧은 문단 또는 bullet로 작성하라.
+각 항목은 1~2줄로 제한하고, 전체는 12줄 이내로 작성하라.
 """.strip()
-    return _call_chat_model(system_prompt, context, model=model, temperature=0.25)
+    return _call_chat_model(system_prompt, context, model=model, temperature=0.2)
 
 
 def answer_exec_question_with_llm(question: str, context: dict[str, Any], model: str = DEFAULT_MODEL):
     payload = {"question": question, "context": context}
     system_prompt = """
 당신은 임원 질의응답 Agent다.
-질문에 대해 한국어로 5문장 이내로 답하라.
-마지막에 '근거:'로 시작하는 한 줄에 핵심 수치 또는 판단 근거 2~3개를 정리하라.
+질문에 대해 한국어로 3문장 이내로 답하라.
+마지막에 '근거:'로 시작하는 한 줄에 핵심 수치 또는 판단 근거 2개만 정리하라.
 데이터에 없는 내용은 만들지 마라.
 """.strip()
     return _call_chat_model(system_prompt, payload, model=model, temperature=0.2)
@@ -177,6 +176,6 @@ def interpret_scenario_with_llm(context: dict[str, Any], scenario_result: dict[s
 [영향 해석]
 [가장 민감한 포인트]
 [우선 대응]
-각 섹션은 2문장 이내로 간결하게 작성하라.
+각 섹션은 1문장, 전체는 6줄 이내로 간결하게 작성하라.
 """.strip()
     return _call_chat_model(system_prompt, payload, model=model, temperature=0.25)

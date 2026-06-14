@@ -410,10 +410,10 @@ if not company_options:
 preferred_company = "JB우리캐피탈" if "JB우리캐피탈" in company_options else company_options[0]
 if "selected_company" not in st.session_state or st.session_state.get("selected_company") not in company_options:
     st.session_state["selected_company"] = preferred_company
-if "demo_mode" not in st.session_state:
-    st.session_state["demo_mode"] = "전체 흐름"
 if "focus_mode" not in st.session_state:
-    st.session_state["focus_mode"] = "그룹 스캔"
+    st.session_state["focus_mode"] = "경영진 보고"
+if "demo_mode" not in st.session_state:
+    st.session_state["demo_mode"] = FOCUS_MODE_TO_DEMO.get(st.session_state["focus_mode"], "전체 흐름")
 
 with st.sidebar:
     st.header("리스크 관제 설정")
@@ -451,10 +451,10 @@ with st.sidebar:
         demo_question = st.selectbox(
             "질문 선택",
             [
-                "가장 위험한 계열사는?",
-                "가장 크게 악화된 지표는?",
-                "우선 대응이 필요한 항목은?",
-                "Benchmark Agent가 비교한 개선 벤치마크는?",
+                f"왜 {selected_company}이 최우선 점검 대상인가",
+                "PF 외 추가 악화 축은 무엇인가",
+                "이번 달 즉시 실행해야 할 조치는 무엇인가",
+                "그룹 내 비교 가능한 개선 사례는 어디인가",
             ],
         )
         if st.button("Q&A 실행", use_container_width=True):
@@ -668,6 +668,7 @@ st.markdown(
             경영진이 한 화면에서 <b>문제 징후 → 핵심 원인 → 즉시 조치</b>를 읽을 수 있도록 상단 브리프, 조기경보, 포트폴리오 진단,
             대응계획 흐름으로 재정렬했습니다. 복잡한 기능보다 <b>위험 우선순위와 실행 판단</b>이 먼저 보이도록 화면을 개편했습니다.
         </div>
+        <div class="hero-subtitle"><b>AI Agents</b>가 조기경보, 포트폴리오 진단, 시나리오 해석, 보고서 생성을 역할별로 분담합니다.</div>
         <div class="info-chip-row">
             <div class="info-chip">기준 월 · {latest_month}</div>
             <div class="info-chip">기준 회사 · {selected_company}</div>
@@ -1100,11 +1101,11 @@ with tab4:
         st.markdown('<div class="small-title">임원 예상 질의 대응</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">자주 나오는 질문을 버튼형으로 배치했습니다.</div>', unsafe_allow_html=True)
         faq_items = [
-            ("왜 JB우리캐피탈이 최우선 점검 대상인가", "가장 위험한 계열사"),
-            ("PF 외 추가 악화 요인은 무엇인가", "가장 크게 악화된 지표"),
-            ("즉시 대응이 필요한 항목은 무엇인가", "우선 대응"),
-            ("비교 가능한 개선 사례는 어디인가", "Benchmark Agent"),
-            ("운영리스크가 큰 계열사는 어디인가", "운영리스크"),
+            (f"왜 {selected_company}이 최우선 점검 대상인가", f"왜 {selected_company}이 최우선 점검 대상인가"),
+            ("PF 외에 추가 악화 축은 무엇인가", "PF 외에 추가 악화 축은 무엇인가"),
+            ("이번 달 즉시 실행해야 할 조치는 무엇인가", "이번 달 즉시 실행해야 할 조치는 무엇인가"),
+            ("그룹 내 비교 가능한 개선 사례는 어디인가", "그룹 내 비교 가능한 개선 사례는 어디인가"),
+            ("스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가", "스트레스 확대 시 가장 먼저 흔들리는 세그먼트는 무엇인가"),
         ]
         for idx, (label, query) in enumerate(faq_items, start=1):
             if st.button(label, key=f"faq_{idx}", use_container_width=True):
