@@ -6,8 +6,14 @@ import streamlit as st
 
 from constants import RISK_HEATMAP_COLUMNS
 
+CHART_COLORS = ["#1d4ed8", "#3b82f6", "#93c5fd", "#dc2626", "#f59e0b"]
+
 CUSTOM_CSS = """
 <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    html, body, [class*="css"], .stApp, .stMarkdown, .stTextInput, .stSelectbox, .stRadio, .stButton button, .stDataFrame {
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    }
     .stApp {background: linear-gradient(180deg, #f5f7fb 0%, #eef2f7 45%, #f8fafc 100%);}
     .block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1480px;}
     .hero-wrap {background: radial-gradient(circle at top left, rgba(191,219,254,0.16), transparent 26%), linear-gradient(135deg, #0f172a 0%, #173a63 52%, #1d4f83 100%); border-radius: 28px; padding: 34px 34px 28px 34px; color: white; box-shadow: 0 18px 50px rgba(15,23,42,0.18); margin-bottom: 18px; border: 1px solid rgba(255,255,255,0.06);}
@@ -16,12 +22,16 @@ CUSTOM_CSS = """
     .hero-subtitle {font-size: 1rem; opacity: 0.96; line-height: 1.72; max-width: 1080px;}
     .info-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;}
     .info-chip {background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18); padding: 8px 12px; border-radius: 999px; font-size: 0.9rem; backdrop-filter: blur(8px);}
-    .metric-card {background: #ffffff; border:1px solid #e2e8f0; border-radius:18px; padding:18px 20px; box-shadow:0 10px 28px rgba(15,23,42,0.06); min-height: 136px;}
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .metric-card {background: #ffffff; border:1px solid #e2e8f0; border-radius:18px; padding:18px 20px; box-shadow:0 10px 28px rgba(15,23,42,0.06); min-height: 136px; animation: fadeUp 0.28s ease;}
     .metric-label {color:#64748b; font-size:0.84rem; margin-bottom:6px; font-weight:700; letter-spacing:.01em;}
     .metric-value {font-size:1.9rem; font-weight:900; color:#0f172a; line-height:1.15;}
     .metric-caption {font-size:0.86rem; color:#475569; margin-top:8px; line-height: 1.55;}
     .metric-badge {display:inline-block; margin-top:10px; background:#eff6ff; color:#1d4ed8; font-size:0.74rem; padding:5px 9px; border-radius:999px; font-weight:700;}
-    .section-card {background:#ffffff; border:1px solid #e2e8f0; border-radius:20px; padding:18px 18px 14px 18px; box-shadow:0 10px 28px rgba(15,23,42,0.05); margin-bottom:16px;}
+    .section-card {background:#ffffff; border:1px solid #e2e8f0; border-radius:20px; padding:18px 18px 14px 18px; box-shadow:0 10px 28px rgba(15,23,42,0.05); margin-bottom:16px; animation: fadeUp 0.28s ease;}
     .small-title {font-size:1.03rem; font-weight:800; color:#0f172a; margin-bottom:8px;}
     .section-subtitle {font-size:0.85rem; color:#64748b; margin-bottom:14px; line-height:1.55;}
     .alert-high,.alert-medium,.alert-low {border-radius:16px; padding:14px 16px; margin-bottom:10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7);}
@@ -38,9 +48,24 @@ CUSTOM_CSS = """
     .status-banner {background: linear-gradient(90deg, #ecfeff, #f8fafc); border:1px solid #bae6fd; border-radius:16px; padding:14px 18px; margin-bottom:18px; color:#0f172a;}
     .status-chip-row {display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;}
     .status-chip {background:#ffffff; border:1px solid #dbeafe; padding:7px 10px; border-radius:999px; font-size:0.84rem; color:#0f172a;}
-    .sidebar-card {background:rgba(255,255,255,0.78); border:1px solid rgba(148,163,184,0.18); border-radius:18px; padding:14px 14px 10px 14px; margin:10px 0 14px 0;}
-    .sidebar-kpi {font-size:0.83rem; color:#475569; line-height:1.65;}
-    .sidebar-kpi b {color:#0f172a;}
+    [data-testid="stSidebar"] {background: linear-gradient(180deg, #0f172a 0%, #1e3a5f 100%) !important; color: #f8fafc !important;}
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] .stRadio,
+    [data-testid="stSidebar"] .stSelectbox,
+    [data-testid="stSidebar"] .stExpander,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div {
+        color: #f8fafc !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox > div > div,
+    [data-testid="stSidebar"] .stTextInput > div > div > input {
+        color: #0f172a !important;
+    }
+    .sidebar-card {background:rgba(255,255,255,0.14); border:1px solid rgba(191,219,254,0.22); border-radius:18px; padding:14px 14px 10px 14px; margin:10px 0 14px 0; backdrop-filter: blur(8px);}
+    .sidebar-kpi {font-size:0.83rem; color:#e2e8f0; line-height:1.65;}
+    .sidebar-kpi b {color:#ffffff;}
     .insight-panel {border-radius:22px; padding:20px 20px 16px 20px; margin-bottom:16px; box-shadow:0 12px 28px rgba(15,23,42,0.07);}
     .tone-navy {background:linear-gradient(135deg, #0f172a, #163a63); color:#ffffff; border:1px solid rgba(255,255,255,0.08);}
     .tone-red {background:linear-gradient(135deg, #fff7f7, #fff1f2); border:1px solid #fecaca; color:#111827;}
@@ -74,6 +99,19 @@ CUSTOM_CSS = """
     div[data-testid="stTabs"] button[aria-selected="true"] {background: linear-gradient(90deg, #dbeafe, #eff6ff); color: #1d4ed8;}
 </style>
 """
+
+
+def apply_chart_theme(fig, **layout_kwargs):
+    base_layout = {
+        "font_family": "Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        "paper_bgcolor": "rgba(0,0,0,0)",
+        "plot_bgcolor": "rgba(0,0,0,0)",
+        "colorway": CHART_COLORS,
+        "legend_title_text": "",
+    }
+    base_layout.update(layout_kwargs)
+    fig.update_layout(**base_layout)
+    return fig
 
 
 def inject_custom_css():
@@ -191,8 +229,7 @@ def build_risk_heatmap_figure(risk_df: pd.DataFrame):
         color_continuous_scale="Reds",
         labels={"x": "리스크 축", "y": "계열사", "color": "점수"},
     )
-    fig.update_layout(height=340, margin=dict(l=0, r=0, t=24, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    return fig
+    return apply_chart_theme(fig, height=340, margin=dict(l=0, r=0, t=24, b=0))
 
 
 def build_segment_heatmap_figure(segment_table: pd.DataFrame):
@@ -220,5 +257,4 @@ def build_segment_heatmap_figure(segment_table: pd.DataFrame):
         color_continuous_midpoint=0,
         labels={"x": "위험 축", "y": "세그먼트", "color": "상대 강도"},
     )
-    fig.update_layout(height=380, margin=dict(l=0, r=0, t=24, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    return fig
+    return apply_chart_theme(fig, height=380, margin=dict(l=0, r=0, t=24, b=0))

@@ -49,6 +49,7 @@ from risk_engine import (
     simulate_what_if_scenario,
 )
 from ui_components import (
+    apply_chart_theme,
     build_risk_heatmap_figure,
     build_segment_heatmap_figure,
     inject_custom_css,
@@ -253,7 +254,7 @@ def build_company_trend_figure(metrics_df, selected_company):
         markers=True,
         color_discrete_map={selected_company: "#1d4ed8", "그룹 평균": "#94a3b8", "3개월 이동평균": "#dc2626"},
     )
-    fig.update_layout(height=340, margin=dict(l=0, r=0, t=16, b=0), legend_title_text="", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    fig = apply_chart_theme(fig, height=340, margin=dict(l=0, r=0, t=16, b=0))
     fig.update_yaxes(title=None)
     fig.update_xaxes(title=None)
     return fig
@@ -270,7 +271,7 @@ def build_driver_mix_figure(selected_risk_row):
         {"항목": "이벤트로그", "점수": float(selected_risk_row.get("log_risk_score", 0))},
     ]).sort_values("점수", ascending=True)
     fig = px.bar(driver_df, x="점수", y="항목", orientation="h", color="점수", color_continuous_scale=["#dbeafe", "#93c5fd", "#2563eb"])
-    fig.update_layout(height=340, margin=dict(l=0, r=0, t=16, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    fig = apply_chart_theme(fig, height=340, margin=dict(l=0, r=0, t=16, b=0), coloraxis_showscale=False)
     fig.update_xaxes(title=None)
     fig.update_yaxes(title=None)
     return fig
@@ -281,8 +282,7 @@ def build_alert_distribution_figure(alerts):
         return None
     dist = alerts["severity"].value_counts().rename_axis("severity").reset_index(name="count")
     fig = px.pie(dist, names="severity", values="count", hole=0.56, color="severity", color_discrete_map={"High": "#dc2626", "Medium": "#f59e0b", "Low": "#059669"})
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=10), legend_title_text="", paper_bgcolor="rgba(0,0,0,0)")
-    return fig
+    return apply_chart_theme(fig, height=300, margin=dict(l=0, r=0, t=10, b=10))
 
 
 def build_company_positioning_figure(risk_df):
@@ -299,7 +299,7 @@ def build_company_positioning_figure(risk_df):
         color_discrete_map={"High": "#dc2626", "Medium": "#f59e0b", "Low": "#059669"},
     )
     fig.update_traces(textposition="top center")
-    fig.update_layout(height=360, margin=dict(l=0, r=0, t=16, b=0), legend_title_text="", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    fig = apply_chart_theme(fig, height=360, margin=dict(l=0, r=0, t=16, b=0))
     fig.update_xaxes(title="현재 연체율")
     fig.update_yaxes(title="전월 대비 변화(%p)")
     return fig
@@ -319,7 +319,7 @@ def build_segment_delta_figure(segment_table):
         text="연체율 변화(%p)",
         color_discrete_map={"악화": "#dc2626", "개선": "#059669"},
     )
-    fig.update_layout(height=380, margin=dict(l=0, r=0, t=16, b=0), legend_title_text="", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    fig = apply_chart_theme(fig, height=380, margin=dict(l=0, r=0, t=16, b=0))
     fig.update_xaxes(title=None)
     fig.update_yaxes(title=None)
     return fig
@@ -338,7 +338,7 @@ def build_segment_positioning_figure(segment_table):
         text="세그먼트",
     )
     fig.update_traces(textposition="top center")
-    fig.update_layout(height=380, margin=dict(l=0, r=0, t=16, b=0), legend_title_text="", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    fig = apply_chart_theme(fig, height=380, margin=dict(l=0, r=0, t=16, b=0))
     fig.update_xaxes(title="현재 잔액")
     fig.update_yaxes(title="연체율 변화(%p)")
     return fig
@@ -907,7 +907,7 @@ with tab2:
                 markers=True,
                 color_discrete_sequence=["#1d4ed8", "#0f766e", "#9333ea", "#dc2626"],
             )
-            trend_fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), legend_title_text="", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            trend_fig = apply_chart_theme(trend_fig, height=360, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(trend_fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with bottom_right:
@@ -1016,7 +1016,7 @@ with tab3:
             metric_card("예상 리스크 레벨", scenario_result["projected_risk_level"], f"예상 점수 {scenario_result['projected_risk_score']}", "Risk")
     scenario_df = pd.DataFrame({"구분": ["기준 연체율", "예상 연체율"], "연체율": [scenario_result["base_rate"], scenario_result["projected_rate"]]})
     scenario_fig = px.bar(scenario_df, x="구분", y="연체율", color="구분", text="연체율", color_discrete_sequence=["#94a3b8", "#dc2626"])
-    scenario_fig.update_layout(height=300, margin=dict(l=0, r=0, t=16, b=0), showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    scenario_fig = apply_chart_theme(scenario_fig, height=300, margin=dict(l=0, r=0, t=16, b=0), showlegend=False)
     st.plotly_chart(scenario_fig, use_container_width=True)
     st.markdown(
         f"""
