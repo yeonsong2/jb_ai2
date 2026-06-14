@@ -581,7 +581,7 @@ segment_table_display = segment_table.copy()
 if not segment_table_display.empty:
     segment_table_display["위험도"] = segment_table_display["연체율 변화(%p)"].apply(lambda x: "High" if x >= 0.30 else "Medium" if x >= 0.10 else "Low")
     segment_table_display["점검 필요"] = segment_table_display["연체율 변화(%p)"].apply(lambda x: "즉시" if x >= 0.30 else "관찰" if x >= 0.10 else "안정")
-    segment_table_display = segment_table_display[["세그먼트", "현재 연체율", "연체율 변화(%p)", "현재 잔액", "현재 차주수", "위험도", "점검 필요"]].head(7)
+    segment_table_display = segment_table_display[["세그먼트", "현재 연체율", "연체율 변화(%p)", "위험도", "점검 필요"]].head(7)
 
 selected_tone = "green" if selected_snapshot["mom_change_pp"] < 0 else "red" if selected_snapshot["mom_change_pp"] > 0 else "navy"
 
@@ -709,13 +709,13 @@ st.markdown(
 
 row1 = st.columns(4)
 with row1[0]:
-    metric_card("당월 최우선 점검 계열사", max_score_company["company_name"], "그룹 기준 가장 먼저 봐야 할 계열사", "Watchlist")
+    metric_card("최우선 계열사", max_score_company["company_name"], "그룹 기준 가장 먼저 봐야 할 계열사", "Watchlist")
 with row1[1]:
-    metric_card("즉시 점검 필요 경보", f"{high_alert_count}건", f"전체 경보 {len(alerts_df)}건 중 High 등급", "Alert")
+    metric_card("즉시 점검 경보", f"{high_alert_count}건", f"전체 경보 {len(alerts_df)}건 중 High 등급", "Alert")
 with row1[2]:
-    metric_card(f"{selected_company} 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot["headline"], "Core KPI")
+    metric_card("선택 계열사 연체율", f"{selected_snapshot['current_rate']:.2f}%", selected_snapshot["headline"], "Core KPI")
 with row1[3]:
-    metric_card("평균 대비 악화폭", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p", f"전월 대비 {selected_snapshot['mom_change_pp']:+.2f}%p", "Trend")
+    metric_card("3M 평균 대비", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p", f"전월 대비 {selected_snapshot['mom_change_pp']:+.2f}%p", "Trend")
 
 st.markdown("### 경영관리 화면")
 
@@ -730,14 +730,15 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     brief_col, signal_col, action_col = st.columns([1.35, 1.0, 0.95])
     brief_body_html = f"""
-    <div class="brief-headline">{selected_company}의 핵심 위험은 <b>{portfolio_summary['worst_segment']}</b> 중심의 연체 압력 확대입니다.</div>
     <div class="insight-metrics">
         <div class="insight-metric"><div class="insight-metric-label">현재 연체율</div><div class="insight-metric-value">{selected_snapshot['current_rate']:.2f}%</div></div>
         <div class="insight-metric"><div class="insight-metric-label">전월 대비</div><div class="insight-metric-value">{selected_snapshot['mom_change_pp']:+.2f}%p</div></div>
         <div class="insight-metric"><div class="insight-metric-label">3개월 평균 대비</div><div class="insight-metric-value">{selected_snapshot['vs_3m_avg_pp']:+.2f}%p</div></div>
     </div>
+    <hr style="border:none;border-top:1px solid rgba(15,23,42,0.10);margin:14px 0 12px 0;">
+    <div class="brief-headline">{selected_company}의 핵심 위험은 <b>{portfolio_summary['worst_segment']}</b> 중심의 연체 압력 확대입니다.</div>
     <div class="insight-note"><b>핵심 원인</b> · {selected_snapshot['negative_driver_summary']}</div>
-    <div class="insight-note"><b>실무 시사점</b> · {portfolio_summary['worst_segment']} 차환 일정, 담보 재평가, 회수 우선순위를 같은 회의 안건으로 묶어 점검해야 합니다.</div>
+    <div class="insight-note"><b>시사점</b> · {portfolio_summary['worst_segment']} 차환 일정, 담보 재평가, 회수 우선순위를 같은 회의 안건으로 묶어 점검해야 합니다.</div>
     """
     with brief_col:
         render_insight_panel(
@@ -797,13 +798,13 @@ with tab1:
                     st.session_state["early_warning_note"] = safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)
                 st.session_state["early_warning_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.markdown("**PF Surveillance Agent**")
-        st.caption(st.session_state.get("pf_agent_note", safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)))
+        st.markdown(st.session_state.get("pf_agent_note", safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)).replace("\n", "  \n"))
         st.caption(f"생성 시각 · {st.session_state.get('pf_agent_note_generated_at', '-')}")
         st.markdown("**Collateral & Recovery Agent**")
-        st.caption(st.session_state.get("collateral_agent_note", safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)))
+        st.markdown(st.session_state.get("collateral_agent_note", safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)).replace("\n", "  \n"))
         st.caption(f"생성 시각 · {st.session_state.get('collateral_agent_note_generated_at', '-')}")
         st.markdown("**Early Warning Agent**")
-        st.caption(st.session_state.get("early_warning_note", safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)))
+        st.markdown(st.session_state.get("early_warning_note", safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)).replace("\n", "  \n"))
         st.caption(f"생성 시각 · {st.session_state.get('early_warning_note_generated_at', '-')}")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -825,14 +826,16 @@ with tab1:
         st.plotly_chart(build_driver_mix_figure(selected_risk_row), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+    top_action = quick_actions.iloc[0]["액션 아이템"] if not quick_actions.empty else "차주 리스트 재점검"
+    top_purpose = quick_actions.iloc[0]["목적"] if not quick_actions.empty else "취약 차주군 우선 점검"
     st.markdown('<div class="decision-strip">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">경영 판단 포인트</div>', unsafe_allow_html=True)
     st.markdown(
         f"""
         <ul>
-            <li>현재 위험의 중심은 <b>{portfolio_summary['worst_segment']}</b>와 담보/회수 지연 신호에 있습니다.</li>
-            <li>단기 조치는 <b>만기집중 차주 확인</b>, <b>담보 재평가 대상 선별</b>, <b>취약 차주군 재분류</b> 순서가 적절합니다.</li>
-            <li>정책 대응은 PF 및 고위험 협력업체 한도 운영을 보수적으로 재점검하는 방향이 유효합니다.</li>
+            <li><b>{selected_company}</b>의 현재 위험 중심은 <b>{portfolio_summary['worst_segment']}</b>이며, 현재 연체율은 <b>{selected_snapshot['current_rate']:.2f}%</b>입니다.</li>
+            <li>최대 익스포저는 <b>{portfolio_summary['largest_balance_segment']}</b>이고, 우선 실행 과제는 <b>{top_action}</b>입니다.</li>
+            <li>즉시 점검 필요 경보는 <b>{high_alert_count}건</b>이며, 이번 라운드의 핵심 목적은 <b>{top_purpose}</b>입니다.</li>
         </ul>
         """,
         unsafe_allow_html=True,
@@ -1133,7 +1136,7 @@ with tab4:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">답변 및 근거</div>', unsafe_allow_html=True)
         answer_text = st.session_state.get("qa_answer", safe_answer_question(f"왜 {selected_company}이 최우선 점검 대상인가", risk_df, alerts_df, metrics_df, llm_context=llm_context))
-        st.success(answer_text)
+        st.markdown("> " + str(answer_text).replace("\n", "\n> "))
         st.caption(f"생성 시각 · {st.session_state.get('qa_answer_generated_at', '-')}")
         st.markdown('#### 현재 선택 계열사 핵심 요인')
         driver_items = [item.strip() for item in str(selected_risk_row.get("top_drivers", "")).split("|") if item.strip()]
