@@ -52,16 +52,26 @@ CUSTOM_CSS = """
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] .stMarkdown,
     [data-testid="stSidebar"] .stRadio,
-    [data-testid="stSidebar"] .stSelectbox,
     [data-testid="stSidebar"] .stExpander,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] div {
+    [data-testid="stSidebar"] p {
         color: #f8fafc !important;
     }
-    [data-testid="stSidebar"] .stSelectbox > div > div,
-    [data-testid="stSidebar"] .stTextInput > div > div > input {
+    [data-testid="stSidebar"] .stSelectbox > div > div {
+        background: #ffffff !important;
         color: #0f172a !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox > div > div > div,
+    [data-testid="stSidebar"] .stSelectbox span {
+        color: #0f172a !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox svg {
+        fill: #0f172a !important;
+    }
+    [data-testid="stSidebar"] .stMultiSelect > div > div {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        border-radius: 8px !important;
     }
     .sidebar-card {background:rgba(255,255,255,0.14); border:1px solid rgba(191,219,254,0.22); border-radius:18px; padding:14px 14px 10px 14px; margin:10px 0 14px 0; backdrop-filter: blur(8px);}
     .sidebar-kpi {font-size:0.83rem; color:#e2e8f0; line-height:1.65;}
