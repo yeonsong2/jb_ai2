@@ -840,6 +840,19 @@ with row1[2]:
 with row1[3]:
     metric_card("3M 평균 대비", f"{selected_snapshot['vs_3m_avg_pp']:+.2f}%p", f"전월 대비 {selected_snapshot['mom_change_pp']:+.2f}%p", "Trend")
 
+FOCUS_TAB_GUIDE = {
+    "그룹 스캔":     ("2. 조기경보 · 계열 비교",   "그룹 전체 경보 현황과 계열사 비교 순위를 확인합니다."),
+    "PF 집중 점검":  ("3. 포트폴리오 세부진단",     "PF 브릿지론·본PF 세그먼트 악화 원인을 집중 점검합니다."),
+    "기업대출 점검": ("3. 포트폴리오 세부진단",     "중소기업 운전자금·담보대출 세그먼트를 먼저 확인합니다."),
+    "담보·회수 점검":("3. 포트폴리오 세부진단",     "담보 가치와 회수 우선순위 포지셔닝 차트를 점검합니다."),
+    "경영진 보고":   ("1. 경영진 요약 → 4. 대응계획 · 보고서 · Q&A", "핵심 브리프 확인 후 보고서와 Q&A로 마무리합니다."),
+}
+tab_hint, tab_desc = FOCUS_TAB_GUIDE.get(focus_mode, ("1. 경영진 요약", ""))
+st.markdown(
+    f'<div class="demo-banner">📍 <b>관제 초점 · {focus_mode}</b> &nbsp;→&nbsp; <b>{tab_hint}</b> 탭을 먼저 확인하세요 &nbsp;|&nbsp; {tab_desc}</div>',
+    unsafe_allow_html=True,
+)
+
 st.markdown("### 경영관리 화면")
 
 tab1, tab2, tab3, tab4 = st.tabs([
