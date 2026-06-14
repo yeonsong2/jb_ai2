@@ -28,6 +28,14 @@ from healthcheck import (
     render_healthcheck_summary,
     stop_with_deploy_diagnostics,
 )
+from llm_service import (
+    answer_exec_question_with_llm,
+    build_llm_context,
+    generate_executive_report_with_llm,
+    generate_orchestrator_brief,
+    generate_specialist_opinion,
+    interpret_scenario_with_llm,
+)
 from pdf_export import build_company_report_pdf, build_group_brief_pdf
 from risk_engine import (
     answer_question,
@@ -82,11 +90,51 @@ def safe_generate_executive_report(risk_df, alerts_df, latest_month):
         return f"[{latest_month}] 그룹 브리프 생성 중 예외가 발생했습니다. 상세 오류: {exc}"
 
 
-def safe_answer_question(question, risk_df, alerts_df, metrics_df):
+def safe_generate_orchestrator_brief(llm_context):
+    if not api_key_configured:
+        return "OPENAI_API_KEY가 없어 Orchestrator Agent 브리프를 생성할 수 없습니다."
+    text, err = generate_orchestrator_brief(llm_context)
+    if err:
+        return f"Orchestrator Agent 호출 중 오류가 발생했습니다: {err}"
+    return text
+
+
+def safe_generate_specialist_note(agent_name, focus, llm_context):
+    if not api_key_configured:
+        return f"OPENAI_API_KEY가 없어 {agent_name} 의견을 생성할 수 없습니다."
+    text, err = generate_specialist_opinion(agent_name, focus, llm_context)
+    if err:
+        return f"{agent_name} 호출 중 오류가 발생했습니다: {err}"
+    return text
+
+
+def safe_generate_ai_executive_report(llm_context):
+    if not api_key_configured:
+        return "OPENAI_API_KEY가 없어 AI 임원 보고서를 생성할 수 없습니다."
+    text, err = generate_executive_report_with_llm(llm_context)
+    if err:
+        return f"Executive Reporting Agent 호출 중 오류가 발생했습니다: {err}"
+    return text
+
+
+def safe_answer_question(question, risk_df, alerts_df, metrics_df, llm_context=None):
+    if llm_context and api_key_configured:
+        text, err = answer_exec_question_with_llm(question, llm_context)
+        if not err and text:
+            return text
     try:
         return answer_question(question, risk_df, alerts_df, metrics_df)
     except Exception as exc:
         return f"질의응답 생성 중 예외가 발생했습니다: {exc}"
+
+
+def safe_interpret_scenario(llm_context, scenario_result):
+    if not api_key_configured:
+        return "OPENAI_API_KEY가 없어 시나리오 해석 Agent를 실행할 수 없습니다."
+    text, err = interpret_scenario_with_llm(llm_context, scenario_result)
+    if err:
+        return f"Scenario Interpretation Agent 호출 중 오류가 발생했습니다: {err}"
+    return text
 
 
 def safe_simulate_what_if(selected_company, risk_df, segment_df, pf_stress, collateral_stress, sme_stress):
@@ -449,6 +497,24 @@ if not segment_table_display.empty:
 
 selected_tone = "green" if selected_snapshot["mom_change_pp"] < 0 else "red" if selected_snapshot["mom_change_pp"] > 0 else "navy"
 
+llm_context = build_llm_context(
+    latest_month=latest_month,
+    selected_company=selected_company,
+    selected_snapshot=selected_snapshot,
+    portfolio_summary=portfolio_summary,
+    selected_risk_row=selected_risk_row,
+    filtered_alerts=filtered_alerts,
+    action_item_display=action_item_display,
+    segment_table_display=segment_table_display,
+    comparison_data={
+        "best_company": comparison_data.get("best_company", "N/A"),
+        "best_summary": comparison_data.get("best_summary", ""),
+        "worst_company": comparison_data.get("worst_company", "N/A"),
+        "worst_summary": comparison_data.get("worst_summary", ""),
+    },
+    focus_mode=focus_mode,
+)
+
 
 st.markdown(
     f"""
@@ -542,6 +608,30 @@ with tab1:
         st.markdown('<div class="section-subtitle">오늘부터 이번 달까지 실제로 움직여야 할 과제입니다.</div>', unsafe_allow_html=True)
         for _, row in quick_actions.iterrows():
             render_action_card(row["시점"], row["액션 아이템"], row["목적"])
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    ai_left, ai_right = st.columns([1, 1])
+    with ai_left:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
+        if st.button("AI Orchestrator 브리프 생성", use_container_width=True):
+            st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
+        st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", "버튼을 눌러 AI 종합판단을 생성하세요."), height=220)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with ai_right:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">Specialist Agents 메모</div>', unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("PF Agent 의견 생성", use_container_width=True):
+                st.session_state["pf_agent_note"] = safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)
+        with c2:
+            if st.button("담보 Agent 의견 생성", use_container_width=True):
+                st.session_state["collateral_agent_note"] = safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)
+        st.markdown("**PF Surveillance Agent**")
+        st.caption(st.session_state.get("pf_agent_note", "아직 생성되지 않았습니다."))
+        st.markdown("**Collateral & Recovery Agent**")
+        st.caption(st.session_state.get("collateral_agent_note", "아직 생성되지 않았습니다."))
         st.markdown('</div>', unsafe_allow_html=True)
 
     trend_col, driver_col = st.columns([1.15, 0.85])
@@ -767,6 +857,13 @@ with tab3:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">Scenario Interpretation Agent</div>', unsafe_allow_html=True)
+    if st.button("AI 시나리오 해석 생성", use_container_width=True):
+        st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
+    st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", "버튼을 눌러 시나리오 해석을 생성하세요."), height=180)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 with tab4:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -784,7 +881,10 @@ with tab4:
             st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
             st.session_state["reason_report_company"] = selected_company
         if st.button("회사별 보고서 새로고침", use_container_width=True):
-            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
+            if api_key_configured:
+                st.session_state["reason_report"] = safe_generate_ai_executive_report(llm_context)
+            else:
+                st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
             st.session_state["reason_report_company"] = selected_company
         st.text_area("회사별 보고서 미리보기", st.session_state["reason_report"], height=320)
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
@@ -797,7 +897,10 @@ with tab4:
         if "executive_report" not in st.session_state:
             st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
         if st.button("그룹 브리프 새로고침", use_container_width=True):
-            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
+            if api_key_configured:
+                st.session_state["executive_report"] = safe_generate_orchestrator_brief(llm_context)
+            else:
+                st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month)
         st.text_area("그룹 브리프 미리보기", st.session_state["executive_report"], height=320)
         group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
         st.download_button("PDF 다운로드 ", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
@@ -817,7 +920,7 @@ with tab4:
         ]
         for idx, (label, query) in enumerate(faq_items, start=1):
             if st.button(label, key=f"faq_{idx}", use_container_width=True):
-                st.session_state["qa_answer"] = safe_answer_question(query, risk_df, alerts_df, metrics_df)
+                st.session_state["qa_answer"] = safe_answer_question(query, risk_df, alerts_df, metrics_df, llm_context=llm_context)
         st.markdown('</div>', unsafe_allow_html=True)
     with qa_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
