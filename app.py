@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -77,6 +78,89 @@ def load_data():
     return load_dataframes(METRICS_PATH, LOGS_PATH, DRIVERS_PATH, SEGMENT_PATH)
 
 
+@st.cache_data
+def load_demo_llm_payloads():
+    payload_path = DATA_DIR / "demo_llm_payloads.json"
+    with payload_path.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+class _SafeFormatDict(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+
+def _build_demo_render_context(llm_context=None, scenario_result=None, question=""):
+    llm_context = llm_context or {}
+    snapshot = llm_context.get("snapshot", {}) or {}
+    portfolio = llm_context.get("portfolio_summary", {}) or {}
+    alerts = llm_context.get("alerts", []) or []
+    context = {
+        "selected_company": llm_context.get("selected_company", st.session_state.get("selected_company", "JB우리캐피탈")),
+        "focus_mode": llm_context.get("focus_mode", st.session_state.get("focus_mode", "경영진 보고")),
+        "latest_month": llm_context.get("latest_month", "N/A"),
+        "current_rate": float(snapshot.get("current_rate", 0.0) or 0.0),
+        "mom_change_pp": float(snapshot.get("mom_change_pp", 0.0) or 0.0),
+        "vs_3m_avg_pp": float(snapshot.get("vs_3m_avg_pp", 0.0) or 0.0),
+        "negative_driver_summary": snapshot.get("negative_driver_summary", "악화 요인 데이터 없음"),
+        "headline": snapshot.get("headline", "핵심 리스크 재점검이 필요합니다."),
+        "worst_segment": portfolio.get("worst_segment", "핵심 세그먼트"),
+        "largest_balance_segment": portfolio.get("largest_balance_segment", "최대 익스포저 세그먼트"),
+        "pf_share": portfolio.get("pf_share", 0.0),
+        "secured_share": portfolio.get("secured_share", 0.0),
+        "alerts_count": len(alerts),
+        "question": question,
+        "projected_rate": 0.0,
+        "stress_delta": 0.0,
+    }
+    if scenario_result:
+        context["projected_rate"] = float(scenario_result.get("projected_rate", 0.0) or 0.0)
+        context["stress_delta"] = float(scenario_result.get("stress_delta", 0.0) or 0.0)
+    return context
+
+
+
+def _render_demo_template(template, llm_context=None, scenario_result=None, question=""):
+    if not template:
+        return None
+    context = _build_demo_render_context(llm_context=llm_context, scenario_result=scenario_result, question=question)
+    return str(template).format_map(_SafeFormatDict(context))
+
+
+
+def _get_demo_payload(llm_context=None):
+    payloads = load_demo_llm_payloads()
+    llm_context = llm_context or {}
+    selected_company = llm_context.get("selected_company", st.session_state.get("selected_company", "JB우리캐피탈"))
+    focus_mode = llm_context.get("focus_mode", st.session_state.get("focus_mode", "경영진 보고"))
+    exact_key = f"{selected_company}|{focus_mode}"
+
+    merged_payload = dict(payloads.get("__default__", {}))
+    merged_payload.update(payloads.get(exact_key, {}))
+
+    merged_qa = dict(payloads.get("__default__", {}).get("qa_answers", {}))
+    merged_qa.update(payloads.get(exact_key, {}).get("qa_answers", {}))
+    merged_payload["qa_answers"] = merged_qa
+    return merged_payload
+
+
+
+def _get_demo_cached_text(field_name, llm_context=None, question="", scenario_result=None):
+    payload = _get_demo_payload(llm_context=llm_context)
+    if field_name == "qa_answer":
+        qa_answers = payload.get("qa_answers", {})
+        template = qa_answers.get(question) or qa_answers.get("__default__")
+        return _render_demo_template(template, llm_context=llm_context, scenario_result=scenario_result, question=question)
+    template = payload.get(field_name)
+    return _render_demo_template(template, llm_context=llm_context, scenario_result=scenario_result, question=question)
+
+
+
+def _generation_label():
+    return "DEMO CACHE" if st.session_state.get("llm_cache_demo_mode", False) else pd.Timestamp.now().strftime("%H:%M:%S")
+
+
 
 def _build_rule_based_orchestrator_brief(llm_context):
     snapshot = llm_context.get("snapshot", {})
@@ -153,6 +237,10 @@ def _build_rule_based_scenario_note(llm_context, scenario_result):
 차주 리스트 재점검 → 담보 재평가 → 회수정책 조정 순으로 대응 우선순위를 가져가는 편이 적절합니다.'''
 
 def safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=None):
+    if llm_context and st.session_state.get("llm_cache_demo_mode", False):
+        text = _get_demo_cached_text("reason_report", llm_context=llm_context)
+        if text:
+            return text
     if llm_context and api_key_configured:
         text, err = generate_executive_report_with_llm(llm_context)
         if not err and text:
@@ -164,6 +252,10 @@ def safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_com
 
 
 def safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=None):
+    if llm_context and st.session_state.get("llm_cache_demo_mode", False):
+        text = _get_demo_cached_text("executive_report", llm_context=llm_context)
+        if text:
+            return text
     if llm_context and api_key_configured:
         text, err = generate_executive_report_with_llm(llm_context)
         if not err and text:
@@ -175,6 +267,10 @@ def safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context
 
 
 def safe_generate_orchestrator_brief(llm_context):
+    if st.session_state.get("llm_cache_demo_mode", False):
+        text = _get_demo_cached_text("orchestrator_brief", llm_context=llm_context)
+        if text:
+            return text
     if api_key_configured:
         text, err = generate_orchestrator_brief(llm_context)
         if not err and text:
@@ -183,6 +279,15 @@ def safe_generate_orchestrator_brief(llm_context):
 
 
 def safe_generate_specialist_note(agent_name, focus, llm_context):
+    if st.session_state.get("llm_cache_demo_mode", False):
+        field_name = "early_warning_note"
+        if "PF" in agent_name:
+            field_name = "pf_agent_note"
+        elif "Collateral" in agent_name:
+            field_name = "collateral_agent_note"
+        text = _get_demo_cached_text(field_name, llm_context=llm_context)
+        if text:
+            return text
     if api_key_configured:
         text, err = generate_specialist_opinion(agent_name, focus, llm_context)
         if not err and text:
@@ -199,6 +304,10 @@ def safe_generate_ai_executive_report(llm_context):
 
 
 def safe_answer_question(question, risk_df, alerts_df, metrics_df, llm_context=None):
+    if llm_context and st.session_state.get("llm_cache_demo_mode", False):
+        text = _get_demo_cached_text("qa_answer", llm_context=llm_context, question=question)
+        if text:
+            return text
     if llm_context and api_key_configured:
         text, err = answer_exec_question_with_llm(question, llm_context)
         if not err and text:
@@ -210,6 +319,10 @@ def safe_answer_question(question, risk_df, alerts_df, metrics_df, llm_context=N
 
 
 def safe_interpret_scenario(llm_context, scenario_result):
+    if st.session_state.get("llm_cache_demo_mode", False):
+        text = _get_demo_cached_text("scenario_agent_note", llm_context=llm_context, scenario_result=scenario_result)
+        if text:
+            return text
     if api_key_configured:
         text, err = interpret_scenario_with_llm(llm_context, scenario_result)
         if not err and text:
@@ -414,6 +527,8 @@ if "focus_mode" not in st.session_state:
     st.session_state["focus_mode"] = "경영진 보고"
 if "demo_mode" not in st.session_state:
     st.session_state["demo_mode"] = FOCUS_MODE_TO_DEMO.get(st.session_state["focus_mode"], "전체 흐름")
+if "llm_cache_demo_mode" not in st.session_state:
+    st.session_state["llm_cache_demo_mode"] = True
 
 with st.sidebar:
     st.header("리스크 관제 설정")
@@ -439,10 +554,17 @@ with st.sidebar:
         help="실무 화면에서는 High·Medium 중심으로 먼저 보는 흐름이 더 자연스럽습니다.",
     )
 
+    llm_cache_demo_mode = st.toggle(
+        "발표용 AI 데모 모드",
+        value=st.session_state.get("llm_cache_demo_mode", True),
+        help="API 키가 없거나 응답이 느린 환경에서도 사전 생성한 AI 응답을 즉시 시연합니다.",
+    )
+    st.session_state["llm_cache_demo_mode"] = llm_cache_demo_mode
+
     st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
     st.markdown("**현재 관제 기준**")
     st.markdown(
-        f'<div class="sidebar-kpi"><b>기준 월</b> · {latest_month}<br><b>메인 포트폴리오</b> · {selected_company}<br><b>관제 초점</b> · {focus_mode}<br><b>경보 필터</b> · {", ".join(severity_filter) if severity_filter else "없음"}</div>',
+        f'<div class="sidebar-kpi"><b>기준 월</b> · {latest_month}<br><b>메인 포트폴리오</b> · {selected_company}<br><b>관제 초점</b> · {focus_mode}<br><b>경보 필터</b> · {", ".join(severity_filter) if severity_filter else "없음"}<br><b>AI 응답 모드</b> · {"Demo Cache" if llm_cache_demo_mode else ("Live LLM" if api_key_configured else "Rule-based Fallback")}</div>',
         unsafe_allow_html=True,
     )
 
@@ -471,7 +593,9 @@ with st.sidebar:
         if st.button("원인 분석 보고서 갱신", use_container_width=True):
             st.session_state["pending_reason_refresh"] = True
 
-    if not api_key_configured:
+    if llm_cache_demo_mode:
+        st.caption("발표용 AI 데모 모드가 켜져 있어 사전 생성한 고품질 응답 캐시를 우선 사용합니다.")
+    elif not api_key_configured:
         st.caption("생성형 브리핑 엔진이 연결되지 않으면 보고서와 질의응답은 자동으로 기본 분석 모드로 이어집니다.")
 
     st.caption("사이드바는 점검 조건 중심으로 최소화했습니다.")
@@ -636,7 +760,7 @@ if st.session_state.get("llm_context_signature") != llm_context_signature:
             metrics_df,
             llm_context=llm_context,
         )
-    generated_at = pd.Timestamp.now().strftime("%H:%M:%S")
+    generated_at = _generation_label()
     st.session_state["orchestrator_brief_generated_at"] = generated_at
     st.session_state["pf_agent_note_generated_at"] = generated_at
     st.session_state["collateral_agent_note_generated_at"] = generated_at
@@ -653,7 +777,7 @@ if pending_question:
             metrics_df,
             llm_context=llm_context,
         )
-    st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+    st.session_state["qa_answer_generated_at"] = _generation_label()
 
 if st.session_state.pop("pending_reason_refresh", False):
     with st.spinner("Executive Reporting Agent가 보고서를 갱신하고 있습니다..."):
@@ -665,7 +789,7 @@ if st.session_state.pop("pending_reason_refresh", False):
             llm_context=llm_context,
         )
     st.session_state["reason_report_company"] = selected_company
-    st.session_state["reason_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+    st.session_state["reason_report_generated_at"] = _generation_label()
 
 
 st.markdown(
@@ -764,11 +888,11 @@ with tab1:
     ai_left, ai_right = st.columns([1, 1])
     with ai_left:
         st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
-        st.caption("✦ GPT-4o-mini가 실시간 생성한 브리프입니다")
+        st.caption("✦ 발표용 AI 데모 모드에서는 사전 생성 캐시를, Live 모드에서는 GPT-4o-mini 생성 결과를 표시합니다")
         if st.button("AI Orchestrator 브리프 새로고침", use_container_width=True):
             with st.spinner("Orchestrator Agent가 브리프를 생성하고 있습니다..."):
                 st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
-            st.session_state["orchestrator_brief_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+            st.session_state["orchestrator_brief_generated_at"] = _generation_label()
         st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", safe_generate_orchestrator_brief(llm_context)), height=220)
         st.caption(f"생성 시각 · {st.session_state.get('orchestrator_brief_generated_at', '-')}")
     with ai_right:
@@ -778,17 +902,17 @@ with tab1:
             if st.button("PF Agent 의견 새로고침", use_container_width=True):
                 with st.spinner("PF Surveillance Agent가 의견을 생성하고 있습니다..."):
                     st.session_state["pf_agent_note"] = safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)
-                st.session_state["pf_agent_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+                st.session_state["pf_agent_note_generated_at"] = _generation_label()
         with c2:
             if st.button("담보 Agent 의견 새로고침", use_container_width=True):
                 with st.spinner("Collateral & Recovery Agent가 의견을 생성하고 있습니다..."):
                     st.session_state["collateral_agent_note"] = safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)
-                st.session_state["collateral_agent_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+                st.session_state["collateral_agent_note_generated_at"] = _generation_label()
         with c3:
             if st.button("Early Warning Agent 새로고침", use_container_width=True):
                 with st.spinner("Early Warning Agent가 조기경보를 재해석하고 있습니다..."):
                     st.session_state["early_warning_note"] = safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)
-                st.session_state["early_warning_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+                st.session_state["early_warning_note_generated_at"] = _generation_label()
         st.markdown("**PF Surveillance Agent**")
         st.markdown(st.session_state.get("pf_agent_note", safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)).replace("\n", "  \n"))
         st.caption(f"생성 시각 · {st.session_state.get('pf_agent_note_generated_at', '-')}")
@@ -998,14 +1122,14 @@ with tab3:
         st.session_state["scenario_signature"] = scenario_signature
         with st.spinner("Scenario Interpretation Agent가 해석을 생성하고 있습니다..."):
             st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
-        st.session_state["scenario_agent_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+        st.session_state["scenario_agent_generated_at"] = _generation_label()
 
     st.markdown('<div class="small-title">Scenario Interpretation Agent</div>', unsafe_allow_html=True)
     if st.button("AI 시나리오 해석 새로고침", use_container_width=True):
         with st.spinner("Scenario Interpretation Agent가 해석을 생성하고 있습니다..."):
             st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
         st.session_state["scenario_signature"] = scenario_signature
-        st.session_state["scenario_agent_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+        st.session_state["scenario_agent_generated_at"] = _generation_label()
     st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", safe_interpret_scenario(llm_context, scenario_result)), height=180)
     st.caption(f"생성 시각 · {st.session_state.get('scenario_agent_generated_at', '-')}")
 
@@ -1031,13 +1155,13 @@ with tab4:
                 st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
-            st.session_state["reason_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+            st.session_state["reason_report_generated_at"] = _generation_label()
         if st.button("회사별 보고서 새로고침", use_container_width=True):
             with st.spinner("Executive Reporting Agent가 선택 계열사 보고서를 준비하고 있습니다..."):
                 st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
-            st.session_state["reason_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+            st.session_state["reason_report_generated_at"] = _generation_label()
         st.text_area("회사별 보고서 미리보기", st.session_state["reason_report"], height=320)
         st.caption(f"생성 시각 · {st.session_state.get('reason_report_generated_at', '-')}")
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
@@ -1050,12 +1174,12 @@ with tab4:
             with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
                 st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
-            st.session_state["executive_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+            st.session_state["executive_report_generated_at"] = _generation_label()
         if st.button("그룹 브리프 새로고침", use_container_width=True):
             with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
                 st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
-            st.session_state["executive_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+            st.session_state["executive_report_generated_at"] = _generation_label()
         st.text_area("그룹 브리프 미리보기", st.session_state["executive_report"], height=320)
         st.caption(f"생성 시각 · {st.session_state.get('executive_report_generated_at', '-')}")
         group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
@@ -1076,12 +1200,13 @@ with tab4:
             if st.button(label, key=f"faq_{idx}", use_container_width=True):
                 with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
                     st.session_state["qa_answer"] = safe_answer_question(query, risk_df, alerts_df, metrics_df, llm_context=llm_context)
-                st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+                st.session_state["qa_answer_generated_at"] = _generation_label()
         custom_q = st.text_input("직접 질문 입력", placeholder="예: 이번 달 가장 먼저 점검해야 할 세그먼트는 무엇인가")
         if st.button("질문하기", use_container_width=True) and custom_q:
             with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
                 st.session_state["qa_answer"] = safe_answer_question(custom_q, risk_df, alerts_df, metrics_df, llm_context=llm_context)
-            st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+            st.session_state["qa_answer_generated_at"] = _generation_label()
+        st.markdown('</div>', unsafe_allow_html=True)
     with qa_right:
         st.markdown('<div class="small-title">답변 및 근거</div>', unsafe_allow_html=True)
         answer_text = st.session_state.get("qa_answer", safe_answer_question(f"왜 {selected_company}이 최우선 점검 대상인가", risk_df, alerts_df, metrics_df, llm_context=llm_context))
