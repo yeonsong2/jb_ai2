@@ -420,6 +420,25 @@ def render_report_preview_card(kicker, title, subtitle, report_text, accent="#1d
 
 
 
+def render_report_highlight_strip(conclusion_text, decision_text, accent="#1d4ed8"):
+    st.markdown(
+        f'''
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 0 12px 0;">
+            <div style="background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid {accent}; border-radius:16px; padding:14px 16px;">
+                <div style="font-size:12px; font-weight:800; color:{accent}; margin-bottom:6px;">한 줄 결론</div>
+                <div style="font-size:14px; line-height:1.7; color:#0f172a; font-weight:600;">{html.escape(conclusion_text)}</div>
+            </div>
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #0f172a; border-radius:16px; padding:14px 16px;">
+                <div style="font-size:12px; font-weight:800; color:#0f172a; margin-bottom:6px;">이번 달 의사결정 필요 사항</div>
+                <div style="font-size:14px; line-height:1.7; color:#1e293b; font-weight:600;">{html.escape(decision_text)}</div>
+            </div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+
+
 def _build_rule_based_specialist_note(agent_name, focus, llm_context):
     snapshot = llm_context.get("snapshot", {})
     portfolio = llm_context.get("portfolio_summary", {})
@@ -1412,6 +1431,11 @@ with tab4:
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
             st.session_state["reason_report_generated_at"] = _generation_label()
+        render_report_highlight_strip(
+            f"{selected_company}은 {portfolio_summary['worst_segment']} 중심의 연체 압력이 확대되어 이번 달 우선 점검 대상입니다.",
+            f"차환 일정·담보 재평가·회수 우선순위를 하나의 실행 패키지로 묶어 이번 달 경영진 안건으로 확정해야 합니다.",
+            accent="#1d4ed8",
+        )
         render_report_preview_card(
             "Executive Reporting Agent",
             f"{selected_company} 경영진 보고서",
@@ -1428,6 +1452,11 @@ with tab4:
                 st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
             st.session_state["executive_report_generated_at"] = _generation_label()
+        render_report_highlight_strip(
+            f"{latest_month} 기준 그룹 내 최우선 점검 대상은 {selected_company}이며, 핵심 취약 구간은 {portfolio_summary['worst_segment']}입니다.",
+            f"{selected_company} 대응을 우선 확정하고, 전북은행·광주은행 등 타 계열사 비교 기준과 그룹 차원의 공통 대응 원칙을 함께 정리해야 합니다.",
+            accent="#0f766e",
+        )
         render_report_preview_card(
             "Orchestrator Agent",
             f"{latest_month} 그룹 브리프",
