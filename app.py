@@ -603,37 +603,60 @@ llm_context_signature = "|".join([
 ])
 if st.session_state.get("llm_context_signature") != llm_context_signature:
     st.session_state["llm_context_signature"] = llm_context_signature
-    st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
-    st.session_state["pf_agent_note"] = safe_generate_specialist_note(
-        "PF Surveillance Agent",
-        "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석",
-        llm_context,
-    )
-    st.session_state["collateral_agent_note"] = safe_generate_specialist_note(
-        "Collateral & Recovery Agent",
-        "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석",
-        llm_context,
-    )
+    with st.spinner("Agent들이 최신 리스크 컨텍스트를 재분석하고 있습니다..."):
+        st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
+        st.session_state["pf_agent_note"] = safe_generate_specialist_note(
+            "PF Surveillance Agent",
+            "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석",
+            llm_context,
+        )
+        st.session_state["collateral_agent_note"] = safe_generate_specialist_note(
+            "Collateral & Recovery Agent",
+            "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석",
+            llm_context,
+        )
+        st.session_state["early_warning_note"] = safe_generate_specialist_note(
+            "Early Warning Agent",
+            "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석",
+            llm_context,
+        )
+        st.session_state["qa_answer"] = safe_answer_question(
+            f"왜 {selected_company}이 최우선 점검 대상인가",
+            risk_df,
+            alerts_df,
+            metrics_df,
+            llm_context=llm_context,
+        )
+    generated_at = pd.Timestamp.now().strftime("%H:%M:%S")
+    st.session_state["orchestrator_brief_generated_at"] = generated_at
+    st.session_state["pf_agent_note_generated_at"] = generated_at
+    st.session_state["collateral_agent_note_generated_at"] = generated_at
+    st.session_state["early_warning_note_generated_at"] = generated_at
+    st.session_state["qa_answer_generated_at"] = generated_at
 
 pending_question = st.session_state.pop("pending_qa_question", None)
 if pending_question:
-    st.session_state["qa_answer"] = safe_answer_question(
-        pending_question,
-        risk_df,
-        alerts_df,
-        metrics_df,
-        llm_context=llm_context,
-    )
+    with st.spinner("Q&A Agent가 답변을 생성하고 있습니다..."):
+        st.session_state["qa_answer"] = safe_answer_question(
+            pending_question,
+            risk_df,
+            alerts_df,
+            metrics_df,
+            llm_context=llm_context,
+        )
+    st.session_state["qa_answer_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
 
 if st.session_state.pop("pending_reason_refresh", False):
-    st.session_state["reason_report"] = safe_generate_reason_report(
-        metrics_df,
-        drivers_df,
-        segment_df,
-        selected_company,
-        llm_context=llm_context,
-    )
+    with st.spinner("Executive Reporting Agent가 보고서를 갱신하고 있습니다..."):
+        st.session_state["reason_report"] = safe_generate_reason_report(
+            metrics_df,
+            drivers_df,
+            segment_df,
+            selected_company,
+            llm_context=llm_context,
+        )
     st.session_state["reason_report_company"] = selected_company
+    st.session_state["reason_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
 
 
 st.markdown(
@@ -735,23 +758,40 @@ with tab1:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Orchestrator Agent 종합판단</div>', unsafe_allow_html=True)
         if st.button("AI Orchestrator 브리프 새로고침", use_container_width=True):
-            st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
+            with st.spinner("Orchestrator Agent가 브리프를 생성하고 있습니다..."):
+                st.session_state["orchestrator_brief"] = safe_generate_orchestrator_brief(llm_context)
+            st.session_state["orchestrator_brief_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.text_area("Orchestrator Agent 출력", st.session_state.get("orchestrator_brief", safe_generate_orchestrator_brief(llm_context)), height=220)
+        st.caption(f"생성 시각 · {st.session_state.get('orchestrator_brief_generated_at', '-')}")
         st.markdown('</div>', unsafe_allow_html=True)
     with ai_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">Specialist Agents 메모</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             if st.button("PF Agent 의견 새로고침", use_container_width=True):
-                st.session_state["pf_agent_note"] = safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)
+                with st.spinner("PF Surveillance Agent가 의견을 생성하고 있습니다..."):
+                    st.session_state["pf_agent_note"] = safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)
+                st.session_state["pf_agent_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         with c2:
             if st.button("담보 Agent 의견 새로고침", use_container_width=True):
-                st.session_state["collateral_agent_note"] = safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)
+                with st.spinner("Collateral & Recovery Agent가 의견을 생성하고 있습니다..."):
+                    st.session_state["collateral_agent_note"] = safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)
+                st.session_state["collateral_agent_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
+        with c3:
+            if st.button("Early Warning Agent 새로고침", use_container_width=True):
+                with st.spinner("Early Warning Agent가 조기경보를 재해석하고 있습니다..."):
+                    st.session_state["early_warning_note"] = safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)
+                st.session_state["early_warning_note_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.markdown("**PF Surveillance Agent**")
         st.caption(st.session_state.get("pf_agent_note", safe_generate_specialist_note("PF Surveillance Agent", "PF 브릿지론, 본PF, 차환 부담과 세그먼트 악화 징후 분석", llm_context)))
+        st.caption(f"생성 시각 · {st.session_state.get('pf_agent_note_generated_at', '-')}")
         st.markdown("**Collateral & Recovery Agent**")
         st.caption(st.session_state.get("collateral_agent_note", safe_generate_specialist_note("Collateral & Recovery Agent", "담보 재평가, 회수 우선순위, 방어력 저하 구간 분석", llm_context)))
+        st.caption(f"생성 시각 · {st.session_state.get('collateral_agent_note_generated_at', '-')}")
+        st.markdown("**Early Warning Agent**")
+        st.caption(st.session_state.get("early_warning_note", safe_generate_specialist_note("Early Warning Agent", "조기경보, 최근 이벤트 로그, 민원 및 이상징후 변화 해석", llm_context)))
+        st.caption(f"생성 시각 · {st.session_state.get('early_warning_note_generated_at', '-')}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     trend_col, driver_col = st.columns([1.15, 0.85])
@@ -980,14 +1020,19 @@ with tab3:
     scenario_signature = f"{llm_context_signature}|{pf_stress:.2f}|{collateral_stress:.2f}|{sme_stress:.2f}"
     if st.session_state.get("scenario_signature") != scenario_signature:
         st.session_state["scenario_signature"] = scenario_signature
-        st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
+        with st.spinner("Scenario Interpretation Agent가 해석을 생성하고 있습니다..."):
+            st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
+        st.session_state["scenario_agent_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="small-title">Scenario Interpretation Agent</div>', unsafe_allow_html=True)
     if st.button("AI 시나리오 해석 새로고침", use_container_width=True):
-        st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
+        with st.spinner("Scenario Interpretation Agent가 해석을 생성하고 있습니다..."):
+            st.session_state["scenario_agent_note"] = safe_interpret_scenario(llm_context, scenario_result)
         st.session_state["scenario_signature"] = scenario_signature
+        st.session_state["scenario_agent_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
     st.text_area("시나리오 해석", st.session_state.get("scenario_agent_note", safe_interpret_scenario(llm_context, scenario_result)), height=180)
+    st.caption(f"생성 시각 · {st.session_state.get('scenario_agent_generated_at', '-')}")
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -1009,31 +1054,41 @@ with tab4:
     doc_left, doc_right = st.columns([1, 1])
     with doc_left:
         st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">회사별 임원 보고서</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">Executive Reporting Agent · 선택 계열사 보고서</div>', unsafe_allow_html=True)
         st.markdown('<ul class="doc-list"><li>핵심 위험 요약</li><li>포트폴리오 구조</li><li>대응 일정 및 담당</li></ul>', unsafe_allow_html=True)
         if "reason_report" not in st.session_state or st.session_state.get("reason_report_signature") != llm_context_signature:
-            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
+            with st.spinner("Executive Reporting Agent가 선택 계열사 보고서를 준비하고 있습니다..."):
+                st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
+            st.session_state["reason_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         if st.button("회사별 보고서 새로고침", use_container_width=True):
-            st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
+            with st.spinner("Executive Reporting Agent가 선택 계열사 보고서를 준비하고 있습니다..."):
+                st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
+            st.session_state["reason_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.text_area("회사별 보고서 미리보기", st.session_state["reason_report"], height=320)
+        st.caption(f"생성 시각 · {st.session_state.get('reason_report_generated_at', '-')}")
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
         st.download_button("PDF 다운로드", data=company_pdf, file_name=f"{selected_company}_{latest_month}_company_report.pdf", mime="application/pdf", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with doc_right:
         st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">그룹 리스크 브리프</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-title">Orchestrator Agent · 그룹 브리프</div>', unsafe_allow_html=True)
         st.markdown('<ul class="doc-list"><li>계열사 비교</li><li>주요 경보</li><li>경영 판단 포인트</li></ul>', unsafe_allow_html=True)
         if "executive_report" not in st.session_state or st.session_state.get("executive_report_signature") != llm_context_signature:
-            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
+            with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
+                st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
+            st.session_state["executive_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         if st.button("그룹 브리프 새로고침", use_container_width=True):
-            st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
+            with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
+                st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
+            st.session_state["executive_report_generated_at"] = pd.Timestamp.now().strftime("%H:%M:%S")
         st.text_area("그룹 브리프 미리보기", st.session_state["executive_report"], height=320)
+        st.caption(f"생성 시각 · {st.session_state.get('executive_report_generated_at', '-')}")
         group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], alerts_df)
         st.download_button("PDF 다운로드 ", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1057,8 +1112,9 @@ with tab4:
     with qa_right:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="small-title">답변 및 근거</div>', unsafe_allow_html=True)
-        answer_text = st.session_state.get("qa_answer", "왼쪽 버튼을 눌러 질문에 대한 즉답을 확인하세요.")
+        answer_text = st.session_state.get("qa_answer", safe_answer_question(f"왜 {selected_company}이 최우선 점검 대상인가", risk_df, alerts_df, metrics_df, llm_context=llm_context))
         st.success(answer_text)
+        st.caption(f"생성 시각 · {st.session_state.get('qa_answer_generated_at', '-')}")
         st.markdown('#### 현재 선택 계열사 핵심 요인')
         driver_items = [item.strip() for item in str(selected_risk_row.get("top_drivers", "")).split("|") if item.strip()]
         if driver_items:
