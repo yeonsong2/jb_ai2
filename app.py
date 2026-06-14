@@ -1,3 +1,4 @@
+import html
 import json
 import os
 from pathlib import Path
@@ -349,6 +350,74 @@ def _build_rule_based_orchestrator_brief(llm_context):
 [경영 판단 포인트]
 - PF 비중 {portfolio.get("pf_share", 0.0)}%, 담보 기반 익스포저 {portfolio.get("secured_share", 0.0)}% 구조에서는 차환 일정과 담보 재평가를 같은 회의 안건으로 묶는 편이 적절합니다.
 - 단기 대응은 차주 리스트 재점검, 담보 재평가 대상 선별, 회수 우선순위 조정 순으로 정리하는 것이 적절합니다.'''
+
+
+def _format_report_body_html(report_text):
+    text = str(report_text or "").strip()
+    if not text:
+        return '<div style="color:#475569;font-size:14px;">표시할 보고 문안이 없습니다.</div>'
+
+    sections = []
+    current_title = None
+    current_lines = []
+
+    def flush_section():
+        nonlocal current_title, current_lines, sections
+        if current_title or current_lines:
+            sections.append((current_title, current_lines[:]))
+        current_title = None
+        current_lines = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            flush_section()
+            current_title = line[1:-1].strip()
+        elif len(line) > 2 and line[0].isdigit() and line[1] == ".":
+            flush_section()
+            current_title = line.split(".", 1)[1].strip()
+        else:
+            current_lines.append(line)
+    flush_section()
+
+    block_html = []
+    for title, lines in sections:
+        content_parts = []
+        bullet_lines = [html.escape(line[2:].strip()) for line in lines if line.startswith("- ")]
+        body_lines = [html.escape(line) for line in lines if not line.startswith("- ")]
+        if body_lines:
+            for item in body_lines:
+                content_parts.append(f'<div style="font-size:14px; line-height:1.7; color:#1e293b; margin-top:6px;">{item}</div>')
+        if bullet_lines:
+            bullets = "".join([f'<li style="margin:6px 0;">{item}</li>' for item in bullet_lines])
+            content_parts.append(f'<ul style="margin:10px 0 0 18px; color:#1e293b; font-size:14px; line-height:1.7;">{bullets}</ul>')
+        section_title_html = f'<div style="font-size:13px; font-weight:700; color:#0f172a; margin-bottom:6px;">{html.escape(title)}</div>' if title else ""
+        section_html = (
+            '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:14px 16px; margin-top:12px;">'
+            f'{section_title_html}{"".join(content_parts)}'
+            '</div>'
+        )
+        block_html.append(section_html)
+    return "".join(block_html)
+
+
+
+def render_report_preview_card(kicker, title, subtitle, report_text, accent="#1d4ed8"):
+    body_html = _format_report_body_html(report_text)
+    st.markdown(
+        f'''
+        <div style="background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%); border:1px solid #dbeafe; border-top:4px solid {accent}; border-radius:20px; padding:18px 18px 16px 18px; box-shadow:0 10px 24px rgba(15,23,42,0.06); margin-bottom:12px;">
+            <div style="font-size:11px; font-weight:800; letter-spacing:0.08em; color:{accent}; text-transform:uppercase; margin-bottom:6px;">{html.escape(kicker)}</div>
+            <div style="font-size:22px; font-weight:800; color:#0f172a; margin-bottom:6px;">{html.escape(title)}</div>
+            <div style="font-size:13px; color:#475569; line-height:1.6; margin-bottom:10px;">{html.escape(subtitle)}</div>
+            {body_html}
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
 
 
 def _build_rule_based_specialist_note(agent_name, focus, llm_context):
@@ -1337,29 +1406,35 @@ with tab4:
 
     doc_left, doc_right = st.columns([1, 1])
     with doc_left:
-        st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">Executive Reporting Agent · 선택 계열사 보고서</div>', unsafe_allow_html=True)
-        st.markdown('<ul class="doc-list"><li>핵심 위험 요약</li><li>포트폴리오 구조</li><li>대응 일정 및 담당</li></ul>', unsafe_allow_html=True)
         if "reason_report" not in st.session_state or st.session_state.get("reason_report_signature") != llm_context_signature:
             with st.spinner("Executive Reporting Agent가 선택 계열사 보고서를 준비하고 있습니다..."):
                 st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company, llm_context=llm_context)
             st.session_state["reason_report_company"] = selected_company
             st.session_state["reason_report_signature"] = llm_context_signature
             st.session_state["reason_report_generated_at"] = _generation_label()
-        st.text_area("회사별 보고서 미리보기", st.session_state["reason_report"], height=320)
+        render_report_preview_card(
+            "Executive Reporting Agent",
+            f"{selected_company} 경영진 보고서",
+            "핵심 리스크 · 주요 원인 · 즉시 실행 과제 · 의사결정 안건을 임원 보고용 문장으로 정리했습니다.",
+            st.session_state["reason_report"],
+            accent="#1d4ed8",
+        )
         st.caption(f"생성 시각 · {st.session_state.get('reason_report_generated_at', '-')}")
         company_pdf = build_company_report_pdf(selected_company, latest_month, selected_snapshot, portfolio_summary, st.session_state["reason_report"], action_item_display)
         st.download_button("PDF 다운로드", data=company_pdf, file_name=f"{selected_company}_{latest_month}_company_report.pdf", mime="application/pdf", use_container_width=True)
     with doc_right:
-        st.markdown('<div class="doc-card report-box">', unsafe_allow_html=True)
-        st.markdown('<div class="small-title">Orchestrator Agent · 그룹 브리프</div>', unsafe_allow_html=True)
-        st.markdown('<ul class="doc-list"><li>계열사 비교</li><li>주요 경보</li><li>경영 판단 포인트</li></ul>', unsafe_allow_html=True)
         if "executive_report" not in st.session_state or st.session_state.get("executive_report_signature") != llm_context_signature:
             with st.spinner("Orchestrator Agent가 그룹 브리프를 정리하고 있습니다..."):
                 st.session_state["executive_report"] = safe_generate_executive_report(risk_df, alerts_df, latest_month, llm_context=llm_context)
             st.session_state["executive_report_signature"] = llm_context_signature
             st.session_state["executive_report_generated_at"] = _generation_label()
-        st.text_area("그룹 브리프 미리보기", st.session_state["executive_report"], height=320)
+        render_report_preview_card(
+            "Orchestrator Agent",
+            f"{latest_month} 그룹 브리프",
+            "계열사 비교 · 주요 경보 · 경영 판단 포인트를 한 화면에서 바로 읽을 수 있게 압축했습니다.",
+            st.session_state["executive_report"],
+            accent="#0f766e",
+        )
         st.caption(f"생성 시각 · {st.session_state.get('executive_report_generated_at', '-')}")
         group_pdf = build_group_brief_pdf(latest_month, st.session_state["executive_report"], comparison_data["trend_table"], filtered_alerts if not filtered_alerts.empty else alerts_df)
         st.download_button("PDF 다운로드 ", data=group_pdf, file_name=f"group_brief_{latest_month}.pdf", mime="application/pdf", use_container_width=True)
