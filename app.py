@@ -1278,15 +1278,13 @@ with tab3:
 
 
 with tab4:
-    top_exec_left, top_exec_right = st.columns([1.05, 0.95])
-    with top_exec_left:
-        st.markdown('<div class="small-title">단기 대응 로드맵</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
-        st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
-        st.caption(f"현재 관제 초점({focus_mode})에 맞게 재정렬한 실행 과제입니다.")
-    with top_exec_right:
-        st.markdown('<div class="small-title">Agent 실행 흔적</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 한 번에 확인할 수 있게 남겼습니다.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">단기 대응 로드맵</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-subtitle">보고용 표가 아니라 실제 실행 일정처럼 읽히도록 정리했습니다.</div>', unsafe_allow_html=True)
+    st.dataframe(action_item_display.head(5), use_container_width=True, hide_index=True)
+    st.caption(f"현재 관제 초점({focus_mode})에 맞게 재정렬한 실행 과제입니다.")
+
+    with st.expander("관리자 전용 · Agent 실행 흔적", expanded=False):
+        st.markdown('<div class="section-subtitle">에이전트별 입력, 판단, 출력을 관리자만 필요 시 확인할 수 있게 숨겼습니다.</div>', unsafe_allow_html=True)
         st.dataframe(agent_trace_df.head(8), use_container_width=True, hide_index=True)
 
     doc_left, doc_right = st.columns([1, 1])
