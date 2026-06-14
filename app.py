@@ -399,7 +399,15 @@ except Exception as exc:
     ])
 action_item_df = ensure_dataframe_columns(action_item_df, {"시점": "오늘", "담당 Agent": "Orchestrator Agent", "액션 아이템": "데이터 확인", "기대 효과": "기본 안정화"})
 
-action_item_display = action_item_df.rename(columns={"소관 Agent": "담당 영역", "담당 Agent": "담당 영역", "기대 효과": "목적"}).copy()
+action_item_display = action_item_df.copy()
+if "담당 영역" not in action_item_display.columns:
+    if "소관 Agent" in action_item_display.columns:
+        action_item_display["담당 영역"] = action_item_display["소관 Agent"]
+    elif "담당 Agent" in action_item_display.columns:
+        action_item_display["담당 영역"] = action_item_display["담당 Agent"]
+if "목적" not in action_item_display.columns and "기대 효과" in action_item_display.columns:
+    action_item_display["목적"] = action_item_display["기대 효과"]
+action_item_display = action_item_display[[col for col in ["시점", "담당 영역", "액션 아이템", "목적"] if col in action_item_display.columns]].copy()
 action_item_display = ensure_dataframe_columns(action_item_display, {"시점": "오늘", "담당 영역": "리스크관리", "액션 아이템": "기본 점검", "목적": "안정화"})
 
 ranking_table = risk_df[["company_name", "risk_score", "risk_level", "latest_delinquency_rate", "delinquency_change_pp"]].rename(
