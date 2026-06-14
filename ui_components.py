@@ -146,13 +146,7 @@ def render_insight_panel(title: str, subtitle: str = "", body_html: str = "", to
     }.get(tone, "tone-navy")
     subtitle_html = f'<div class="panel-subtitle">{_escape(subtitle)}</div>' if subtitle else ""
     st.markdown(
-        f"""
-        <div class="insight-panel {tone_class}">
-            <div class="small-title">{_escape(title)}</div>
-            {subtitle_html}
-            {body_html}
-        </div>
-        """,
+        f'<div class="insight-panel {tone_class}"><div class="small-title">{_escape(title)}</div>{subtitle_html}{body_html}</div>',
         unsafe_allow_html=True,
     )
 
