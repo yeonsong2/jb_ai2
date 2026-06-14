@@ -796,7 +796,7 @@ st.markdown(
     f"""
     <div class="hero-wrap">
         <div class="hero-kicker">JB CORPORATE FINANCE CRO MONITORING</div>
-        <div class="hero-title">JB우리캐피탈 기업금융 리스크 관제</div>
+        <div class="hero-title">{selected_company} 기업금융 리스크 관제</div>
         <div class="hero-subtitle">
             경영진이 한 화면에서 <b>문제 징후 → 핵심 원인 → 즉시 조치</b>를 읽을 수 있도록 상단 브리프, 조기경보, 포트폴리오 진단,
             대응계획 흐름으로 재정렬했습니다. 복잡한 기능보다 <b>위험 우선순위와 실행 판단</b>이 먼저 보이도록 화면을 개편했습니다.
@@ -926,7 +926,7 @@ with tab1:
     trend_col, driver_col = st.columns([1.15, 0.85])
     with trend_col:
         st.markdown('<div class="small-title">최근 6개월 위험 추세</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">JB우리캐피탈 추세, 그룹 평균, 3개월 이동평균을 한 화면에서 비교합니다.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-subtitle">{selected_company} 추세, 그룹 평균, 3개월 이동평균을 한 화면에서 비교합니다.</div>', unsafe_allow_html=True)
         company_trend_fig = build_company_trend_figure(metrics_df, selected_company)
         if company_trend_fig is None:
             st.info("추세 차트를 그릴 데이터가 없습니다.")
