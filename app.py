@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -53,6 +54,11 @@ from ui_components import (
 
 st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout="wide")
 inject_custom_css()
+
+try:
+    api_key = st.secrets["OPENAI_API_KEY"]
+except Exception:
+    api_key = os.environ.get("OPENAI_API_KEY")
 
 
 @st.cache_data
