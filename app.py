@@ -60,6 +60,8 @@ try:
 except Exception:
     api_key = os.environ.get("OPENAI_API_KEY")
 
+api_key_configured = bool(api_key)
+
 
 @st.cache_data
 def load_data():
@@ -333,6 +335,9 @@ with st.sidebar:
         if st.button("원인 분석 보고서 갱신", use_container_width=True):
             st.session_state["reason_report"] = safe_generate_reason_report(metrics_df, drivers_df, segment_df, selected_company)
             st.session_state["reason_report_company"] = selected_company
+
+    if not api_key_configured:
+        st.warning("OPENAI_API_KEY가 설정되지 않아 API 연동 기능은 비활성화됩니다. Streamlit Secrets 또는 환경변수에 OPENAI_API_KEY를 설정하세요.")
 
     st.caption("사이드바는 점검 조건 중심으로 최소화했습니다.")
 
